@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# ChromaDB
+chroma_db/
+
+# Test Artifacts
+test.txt
+sample.pdf
+
+# OS
+.DS_Store
