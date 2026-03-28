@@ -9,6 +9,8 @@ from app.core.pipelines.embedding_pipeline import store_chunks
 from app.core.vector_retriever import VectorRetriever
 from app.core.bm25_retriever import BM25Retriever
 from app.core.hybrid_retriever import HybridRetriever
+from app.core.reranking.reranker import Reranker
+from app.core.generation.structured_generator import StructuredGenerator
 
 # Step 1: Ingest
 chunks = ingest_document("test.txt")
@@ -29,3 +31,25 @@ for r in results:
     print(r["content"][:200])
     print("Score:", r["score"])
     print("------")
+
+hybrid_results = hybrid.retrieve("your query", k=10)
+
+reranker = Reranker()
+
+final_results = reranker.rerank("your query", hybrid_results, top_k=5)
+
+for r in final_results:
+    print(r["content"][:200])
+    print("Score:", r["rerank_score"])
+    print("------")
+
+# after reranking
+top_docs = [doc["content"] for doc in final_results]
+
+context = "\n\n".join(top_docs)
+
+generator = StructuredGenerator()
+
+output = generator.generate("your query", context)
+
+print(output)
