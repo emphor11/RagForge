@@ -46,10 +46,11 @@ for r in final_results:
 # after reranking
 top_docs = [doc["content"] for doc in final_results]
 
-context = "\n\n".join(top_docs)
-
 generator = StructuredGenerator()
 
-output = generator.generate("your query", context)
+output = generator.generate(
+    docs=top_docs,
+    mode="document"
+)
 
 print(output)

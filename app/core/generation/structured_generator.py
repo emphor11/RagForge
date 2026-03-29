@@ -133,20 +133,85 @@ class StructuredGenerator:
     def __init__(self):
         self.model = MODEL
 
-    def generate(self, query: str, docs: List[str], retries: int = 2) -> dict:
+    def generate(self, query: str = None, docs: List[str] = None, mode: str = "query", retries: int = 2) -> dict:
 
         context = build_context(docs)
 
-        full_prompt = (
-            CONTROL_PROMPT
-            + "\n\n"
-            + SYSTEM_PROMPT
-            + "\n\n"
-            + USER_PROMPT_TEMPLATE.format(
-                context=context,
-                query=query
+        if mode == "query":
+            full_prompt = (
+                CONTROL_PROMPT
+                + "\n\n"
+                + SYSTEM_PROMPT
+                + "\n\n"
+                + USER_PROMPT_TEMPLATE.format(
+                    context=context,
+                    query=query
+                )
             )
-        )
+
+        elif mode == "document":
+            full_prompt = (
+                CONTROL_PROMPT
+                + "\n\n"
+                + SYSTEM_PROMPT
+                + "\n\n"
+                + f"""
+                DOCUMENT CONTEXT:
+                \"\"\"
+                {context}
+                \"\"\"
+
+                TASK:
+                Analyze the document and produce a structured decision intelligence report.
+
+                Follow these rules strictly:
+
+                - summary: 2-3 sentences describing the document
+
+                - key_insights: 3-5 specific insights
+
+                - risks: 2-4 risks with:
+                * "finding"
+                * "severity": "high" | "medium" | "low"
+                * "reason"
+
+                - opportunities: 1-3 opportunities
+
+                - recommended_actions: 2-4 actions:
+                * must be actionable
+                * include rationale
+
+                - confidence_score: 0.0 to 1.0
+
+                - context_coverage: "full" | "partial" | "insufficient"
+
+                - sources_used: 1-3 short quotes from the document
+
+                Respond ONLY in this JSON format:
+
+                {{
+                "summary": "string",
+                "key_insights": ["string"],
+                "risks": [
+                    {{
+                    "finding": "string",
+                    "severity": "high|medium|low",
+                    "reason": "string"
+                    }}
+                ],
+                "opportunities": ["string"],
+                "recommended_actions": [
+                    {{
+                    "action": "string",
+                    "rationale": "string"
+                    }}
+                ],
+                "confidence_score": 0.0,
+                "context_coverage": "full|partial|insufficient",
+                "sources_used": ["string"]
+                }}
+                """
+            )
 
         for attempt in range(retries):
             try:
