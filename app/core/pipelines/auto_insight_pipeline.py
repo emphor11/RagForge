@@ -1,4 +1,5 @@
 from app.core.pipelines.embedding_pipeline import store_chunks
+from app.core.contracts.profile_builder import build_contract_profile
 
 class AutoInsightPipeline:
     def __init__(self, ingestion_pipeline, generator, insight_store, evaluator=None):
@@ -10,6 +11,9 @@ class AutoInsightPipeline:
     def run(self, file_path: str, document_id: str):
         # Step 1: Ingest document → chunks
         chunks = self.ingestion_pipeline(file_path, document_id)
+
+        # Step 1.5: Build contract profile + normalize clause metadata
+        contract_profile = build_contract_profile(document_id, chunks)
 
         # Step 2: Store chunks in vector DB (added for RAG)
         store_chunks(chunks)
@@ -35,6 +39,7 @@ class AutoInsightPipeline:
 
         # Step 7: Combined Data Object (Safe Storage)
         combined_result = {
+            "contract_profile": contract_profile,
             "insights": insights,
             "evaluation": evaluation
         }
