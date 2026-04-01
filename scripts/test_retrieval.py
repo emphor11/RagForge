@@ -6,9 +6,9 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from app.core.ingestion.pipeline import ingest_document
 from app.core.pipelines.embedding_pipeline import store_chunks
-from app.core.vector_retriever import VectorRetriever
-from app.core.bm25_retriever import BM25Retriever
-from app.core.hybrid_retriever import HybridRetriever
+from app.core.retrieval.vector_retriever import VectorRetriever
+from app.core.retrieval.bm25_retriever import BM25Retriever
+from app.core.retrieval.hybrid_retriever import HybridRetriever
 from app.core.reranking.reranker import Reranker
 from app.core.generation.structured_generator import StructuredGenerator
 

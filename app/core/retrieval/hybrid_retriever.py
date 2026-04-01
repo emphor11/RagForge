@@ -1,10 +1,12 @@
+from typing import Optional
+
 class HybridRetriever:
     def __init__(self, vector_retriever, bm25_retriever):
         self.vector = vector_retriever
         self.bm25 = bm25_retriever
 
-    def retrieve(self, query: str, k=5):
-        vector_results = self.vector.retrieve(query, k)
+    def retrieve(self, query: str, k: int = 5, document_id: Optional[str] = None):
+        vector_results = self.vector.retrieve(query, k, document_id=document_id)
         bm25_results = self.bm25.retrieve(query, k)
 
         combined = {}

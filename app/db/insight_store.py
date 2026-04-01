@@ -23,3 +23,26 @@ class InsightStore:
             json_data = json.load(f)
 
         return json_data
+
+    def list_all(self):
+        docs = []
+
+        if not os.path.exists(self.base_path):
+            return []
+
+        for filename in os.listdir(self.base_path):
+            if filename.endswith(".json"):
+                path = os.path.join(self.base_path, filename)
+                mtime = os.path.getmtime(path)
+                doc_id = filename.replace(".json", "")
+
+                docs.append({
+                    "id": doc_id,
+                    "filename": doc_id,
+                    "upload_date": mtime
+                })
+
+        # Sort by mtime (newest first)
+        docs.sort(key=lambda x: x["upload_date"], reverse=True)
+
+        return docs

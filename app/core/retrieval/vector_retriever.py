@@ -1,3 +1,4 @@
+from typing import List, Optional
 from app.core.embeddings.embedder import Embedder
 from app.db.chroma_store import ChromaStore
 
@@ -7,10 +8,11 @@ class VectorRetriever:
         self.embedder = Embedder()
         self.db = ChromaStore()
 
-    def retrieve(self, query: str, k=5):
+    def retrieve(self, query: str, k=5, document_id: Optional[str] = None):
         query_embedding = self.embedder.embed([query])[0]
 
-        results = self.db.query(query_embedding, n_results=k)
+        where = {"source": document_id} if document_id else None
+        results = self.db.query(query_embedding, n_results=k, where=where)
 
         documents = results["documents"][0]
         metadatas = results["metadatas"][0]

@@ -16,3 +16,6 @@ langchain
 langchain-text-splitters
 huggingface_hub
 python-multipart
+groq
+thefuzz
+python-Levenshtein
