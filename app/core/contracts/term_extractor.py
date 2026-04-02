@@ -10,6 +10,7 @@ GOVERNING_LAW_RE = re.compile(r"laws of ([A-Z][A-Za-z ]+)", re.IGNORECASE)
 TERM_RE = re.compile(r"remain in force for ([^.]+)\.", re.IGNORECASE)
 RENEWAL_RE = re.compile(r"(auto[- ]renew\w*|renew\w*[^.]{0,80})", re.IGNORECASE)
 PAYMENT_RE = re.compile(r"(payment[^.]{0,120}|fees?[^.]{0,120}|pricing[^.]{0,120})", re.IGNORECASE)
+AUTO_RENEW_RE = re.compile(r"(automatically renew\w*[^.]{0,120}|auto[- ]renew\w*[^.]{0,120})", re.IGNORECASE)
 
 
 def extract_parties(chunks) -> list[str]:
@@ -37,10 +38,15 @@ def extract_term_length(text: str) -> str:
 
 
 def extract_renewal_mechanics(text: str) -> str:
-    match = RENEWAL_RE.search(text)
+    match = AUTO_RENEW_RE.search(text) or RENEWAL_RE.search(text)
     return match.group(1).strip() if match else ""
 
 
-def extract_payment_structure(text: str) -> str:
+def extract_payment_structure(text: str, document_type: str = "") -> str:
+    # NDAs often mention "pricing" in the definition of confidential information,
+    # which should not be mistaken for a payment term.
+    if document_type == "nda":
+        return ""
+
     match = PAYMENT_RE.search(text)
     return match.group(1).strip() if match else ""

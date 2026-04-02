@@ -1,21 +1,26 @@
 import re
 
 
-CLAUSE_PATTERNS = [
-    ("confidentiality", [r"confidential", r"non-disclosure", r"permitted use"]),
-    ("return_or_destruction", [r"return or destruction", r"return", r"destroy"]),
-    ("exclusions", [r"exclusions", r"exceptions"]),
-    ("term", [r"term and survival", r"\bterm\b", r"survival"]),
-    ("governing_law", [r"governing law", r"laws of"]),
-    ("dispute_resolution", [r"arbitration", r"dispute resolution"]),
-    ("assignment", [r"assignment", r"assign"]),
-    ("entire_agreement", [r"entire agreement", r"supersedes"]),
-    ("payment", [r"payment", r"fees", r"invoice", r"pricing"]),
-    ("termination", [r"termination", r"terminate"]),
+TITLE_PATTERNS = [r"non-disclosure agreement", r"mutual non-disclosure agreement", r"\bnda\b"]
+PARTIES_PATTERNS = [r"\bbetween\b", r"\bparty\b", r"\bparties\b"]
+RECITALS_PATTERNS = [r"^whereas", r"business purpose", r"now,\s*therefore"]
+
+HEADING_TYPE_PATTERNS = [
+    ("confidentiality_definition", [r"definition of confidential information"]),
+    ("permitted_use_and_non_disclosure", [r"permitted use", r"non-disclosure"]),
+    ("return_or_destruction", [r"return or destruction"]),
+    ("exclusions", [r"\bexclusions?\b", r"\bexceptions?\b"]),
+    ("ip_rights", [r"no license", r"license or transfer of rights", r"intellectual property"]),
+    ("remedies", [r"\bremedies?\b"]),
+    ("term_and_survival", [r"term and survival", r"\bsurvival\b"]),
+    ("governing_law", [r"governing law"]),
+    ("dispute_resolution", [r"dispute resolution", r"arbitration"]),
+    ("entire_agreement", [r"entire agreement"]),
+    ("assignment", [r"assignment"]),
+    ("payment", [r"payment terms", r"fees", r"pricing"]),
+    ("termination", [r"termination"]),
     ("liability_cap", [r"limitation of liability", r"liability cap"]),
-    ("indemnity", [r"indemn", r"indemnity"]),
-    ("ip_rights", [r"intellectual property", r"license", r"rights"]),
-    ("parties", [r"between", r"party", r"parties"]),
+    ("indemnity", [r"\bindemn"]),
 ]
 
 
@@ -29,8 +34,27 @@ def normalize_heading(heading: str) -> str:
 
 
 def infer_clause_type(heading: str, text: str = "") -> str:
-    haystack = f"{heading} {text}".lower()
-    for clause_type, patterns in CLAUSE_PATTERNS:
-        if any(re.search(pattern, haystack) for pattern in patterns):
+    heading_lower = heading.lower().strip()
+    text_lower = text.lower()
+
+    if not heading_lower:
+        if any(re.search(pattern, text_lower) for pattern in RECITALS_PATTERNS):
+            return "recitals"
+        if "this agreement is made and entered into" in text_lower or any(
+            re.search(pattern, text_lower) for pattern in PARTIES_PATTERNS
+        ):
+            return "parties"
+        return ""
+
+    if any(re.search(pattern, heading_lower) for pattern in TITLE_PATTERNS):
+        return "title"
+
+    for clause_type, patterns in HEADING_TYPE_PATTERNS:
+        if any(re.search(pattern, heading_lower) for pattern in patterns):
             return clause_type
+
+    # Body fallback is intentionally narrow so headings remain the dominant signal.
+    if any(re.search(pattern, text_lower[:250]) for pattern in RECITALS_PATTERNS):
+        return "recitals"
+
     return ""

@@ -42,6 +42,6 @@ def build_contract_profile(document_id: str, chunks: list[dict]) -> dict:
         "governing_law": extract_governing_law(full_text),
         "term_length": extract_term_length(full_text),
         "renewal_mechanics": extract_renewal_mechanics(full_text),
-        "payment_structure": extract_payment_structure(full_text),
+        "payment_structure": extract_payment_structure(full_text, contract_type["document_type"]),
         "clause_index": clause_index,
     }
