@@ -13,14 +13,14 @@ HEADING_TYPE_PATTERNS = [
     ("ip_rights", [r"no license", r"license or transfer of rights", r"intellectual property"]),
     ("remedies", [r"\bremedies?\b"]),
     ("term_and_survival", [r"term and survival", r"\bsurvival\b"]),
-    ("governing_law", [r"governing law"]),
-    ("dispute_resolution", [r"dispute resolution", r"arbitration"]),
-    ("entire_agreement", [r"entire agreement"]),
+    ("governing_law", [r"governing law", r"applicable law"]),
+    ("dispute_resolution", [r"dispute resolution", r"arbitration", r"dispute[s]?"]),
+    ("entire_agreement", [r"entire agreement", r"whole agreement"]),
     ("assignment", [r"assignment"]),
-    ("payment", [r"payment terms", r"fees", r"pricing"]),
-    ("termination", [r"termination"]),
-    ("liability_cap", [r"limitation of liability", r"liability cap"]),
-    ("indemnity", [r"\bindemn"]),
+    ("payment", [r"payment terms", r"fees", r"pricing", r"invoices?", r"compensation"]),
+    ("termination", [r"termination", r"term and termination"]),
+    ("liability_cap", [r"limitation of liability", r"liability cap", r"limits? of liability"]),
+    ("indemnity", [r"\bindemn", r"hold harmless"]),
 ]
 
 

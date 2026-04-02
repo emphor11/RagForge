@@ -12,3 +12,4 @@ class ReviewFinding(BaseModel):
     source_quotes: List[str]
     confidence: float
     status: Literal["open", "reviewed", "accepted", "dismissed", "escalated"] = "open"
+    reviewer_note: str = ""

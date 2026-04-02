@@ -291,6 +291,10 @@ class FindingStatusUpdate(BaseModel):
     status: str
 
 
+class FindingNoteUpdate(BaseModel):
+    reviewer_note: str
+
+
 @app.post("/query")
 def query_api(request: QueryRequest):
     query = request.query
@@ -371,6 +375,25 @@ def update_contract_finding_status(document_id: str, finding_index: int, payload
 
     store = InsightStore()
     updated_finding = store.update_review_finding_status(document_id, finding_index, payload.status)
+
+    if not updated_finding:
+        raise HTTPException(status_code=404, detail="Contract or finding not found.")
+
+    return {
+        "document_id": document_id,
+        "finding_index": finding_index,
+        "finding": updated_finding,
+    }
+
+
+@app.patch("/contracts/{document_id}/findings/{finding_index}/note")
+def update_contract_finding_note(document_id: str, finding_index: int, payload: FindingNoteUpdate):
+    store = InsightStore()
+    updated_finding = store.update_review_finding_note(
+        document_id,
+        finding_index,
+        payload.reviewer_note.strip(),
+    )
 
     if not updated_finding:
         raise HTTPException(status_code=404, detail="Contract or finding not found.")

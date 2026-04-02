@@ -20,6 +20,9 @@ const DocumentAnalysis = () => {
   const [queryLoading, setQueryLoading] = useState(false);
   const [showReasoning, setShowReasoning] = useState(false);
   const [updatingFindingIndex, setUpdatingFindingIndex] = useState(null);
+  const [findingFilter, setFindingFilter] = useState("all");
+  const [reviewerNotes, setReviewerNotes] = useState({});
+  const [savingNoteIndex, setSavingNoteIndex] = useState(null);
 
   useEffect(() => {
     loadDocumentInsights();
@@ -107,8 +110,14 @@ const DocumentAnalysis = () => {
       if (risksRes.ok) {
         const risksData = await risksRes.json();
         setContractFindings(risksData.findings || []);
+        setReviewerNotes(
+          Object.fromEntries(
+            (risksData.findings || []).map((finding, idx) => [idx, finding.reviewer_note || ""])
+          )
+        );
       } else if (risksRes.status === 404) {
         setContractFindings([]);
+        setReviewerNotes({});
       } else {
         throw new Error("Failed to load contract findings");
       }
@@ -128,6 +137,7 @@ const DocumentAnalysis = () => {
       setContractProfile(null);
       setContractClauses([]);
       setContractFindings([]);
+      setReviewerNotes({});
       setContractReviewAudit(null);
       setError("Failed to load document insights. Please make sure the file exists.");
     } finally {
@@ -195,6 +205,38 @@ const DocumentAnalysis = () => {
     }
   };
 
+  const handleReviewerNoteSave = async (findingIndex) => {
+    if (savingNoteIndex !== null) return;
+
+    setSavingNoteIndex(findingIndex);
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/contracts/${encodeURIComponent(document_id)}/findings/${findingIndex}/note`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ reviewer_note: reviewerNotes[findingIndex] || "" }),
+        }
+      );
+
+      if (!res.ok) throw new Error("Failed to save reviewer note");
+
+      const data = await res.json();
+      setContractFindings((current) =>
+        current.map((finding, idx) =>
+          idx === findingIndex ? data.finding : finding
+        )
+      );
+    } catch (err) {
+      console.error(err);
+      setError("Failed to save reviewer note.");
+    } finally {
+      setSavingNoteIndex(null);
+    }
+  };
+
   const getSeverityLabel = (severity) => {
     const s = severity?.toLowerCase();
     if (s === "high") return "High Risk";
@@ -238,6 +280,26 @@ const DocumentAnalysis = () => {
     ? "e.g., What is the governing law? Is there a termination right? What does the confidentiality clause allow?"
     : "e.g., Extract the step-by-step implementation plan from section 4.";
   const isContractReview = Boolean(contractProfile);
+  const filteredFindings = contractFindings.filter((finding) => (
+    findingFilter === "all" ? true : (finding.status || "open") === findingFilter
+  ));
+  const findingCounts = {
+    all: contractFindings.length,
+    open: contractFindings.filter((finding) => (finding.status || "open") === "open").length,
+    accepted: contractFindings.filter((finding) => finding.status === "accepted").length,
+    dismissed: contractFindings.filter((finding) => finding.status === "dismissed").length,
+    escalated: contractFindings.filter((finding) => finding.status === "escalated").length,
+  };
+  const severityCounts = {
+    high: contractFindings.filter((finding) => finding.severity === "high").length,
+    medium: contractFindings.filter((finding) => finding.severity === "medium").length,
+    low: contractFindings.filter((finding) => finding.severity === "low").length,
+  };
+  const typeCounts = {
+    risk: contractFindings.filter((finding) => finding.finding_type === "risk").length,
+    missing_protection: contractFindings.filter((finding) => finding.finding_type === "missing_protection").length,
+    negotiation_point: contractFindings.filter((finding) => finding.finding_type === "negotiation_point").length,
+  };
 
   if (loading) {
     return (
@@ -517,8 +579,57 @@ const DocumentAnalysis = () => {
             </div>
           </div>
           <div className="card-body">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '12px', marginBottom: '16px' }}>
+              <div style={{ border: '1px solid rgba(239, 68, 68, 0.2)', background: 'rgba(239, 68, 68, 0.08)', borderRadius: '12px', padding: '14px' }}>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Severity Mix</div>
+                <div style={{ fontWeight: '600', lineHeight: 1.7 }}>
+                  High: {severityCounts.high} · Medium: {severityCounts.medium} · Low: {severityCounts.low}
+                </div>
+              </div>
+              <div style={{ border: '1px solid rgba(59, 130, 246, 0.2)', background: 'rgba(59, 130, 246, 0.08)', borderRadius: '12px', padding: '14px' }}>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Finding Types</div>
+                <div style={{ fontWeight: '600', lineHeight: 1.7 }}>
+                  Risks: {typeCounts.risk} · Missing: {typeCounts.missing_protection} · Negotiation: {typeCounts.negotiation_point}
+                </div>
+              </div>
+              <div style={{ border: '1px solid rgba(16, 185, 129, 0.2)', background: 'rgba(16, 185, 129, 0.08)', borderRadius: '12px', padding: '14px' }}>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Reviewer Progress</div>
+                <div style={{ fontWeight: '600', lineHeight: 1.7 }}>
+                  Open: {findingCounts.open} · Accepted: {findingCounts.accepted} · Escalated: {findingCounts.escalated}
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px' }}>
+              {[
+                ["all", "All"],
+                ["open", "Open"],
+                ["accepted", "Accepted"],
+                ["dismissed", "Dismissed"],
+                ["escalated", "Escalated"],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setFindingFilter(value)}
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: '999px',
+                    border: '1px solid var(--border-color)',
+                    background: findingFilter === value ? 'rgba(59, 130, 246, 0.16)' : 'rgba(255,255,255,0.03)',
+                    color: 'var(--text-primary)',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {label} ({findingCounts[value]})
+                </button>
+              ))}
+            </div>
             <ul className="risk-list">
-              {contractFindings.map((finding, idx) => (
+              {filteredFindings.map((finding) => {
+                const idx = contractFindings.indexOf(finding);
+                return (
                 <li key={`${finding.title}-${idx}`} className="risk-item-complex">
                   <div className="risk-header">
                     <div className="risk-title-row">
@@ -602,12 +713,55 @@ const DocumentAnalysis = () => {
                       Escalate
                     </button>
                   </div>
+                  <div style={{ marginTop: '12px' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>
+                      Reviewer Note
+                    </div>
+                    <textarea
+                      value={reviewerNotes[idx] || ""}
+                      onChange={(e) =>
+                        setReviewerNotes((current) => ({
+                          ...current,
+                          [idx]: e.target.value,
+                        }))
+                      }
+                      placeholder="Add review rationale, next steps, or client-specific context..."
+                      rows={3}
+                      style={{
+                        width: '100%',
+                        borderRadius: '10px',
+                        border: '1px solid var(--border-color)',
+                        background: 'rgba(255,255,255,0.03)',
+                        color: 'var(--text-primary)',
+                        padding: '10px 12px',
+                        fontSize: '13px',
+                        resize: 'vertical',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
+                      <button
+                        className="query-btn"
+                        style={{ padding: '8px 12px', minWidth: 'auto' }}
+                        disabled={savingNoteIndex === idx}
+                        onClick={() => handleReviewerNoteSave(idx)}
+                      >
+                        {savingNoteIndex === idx ? "Saving..." : "Save Note"}
+                      </button>
+                    </div>
+                  </div>
                   <div style={{ textAlign: 'right', marginTop: '4px' }}>
                     {renderConfidence(finding.confidence)}
                   </div>
                 </li>
-              ))}
+                );
+              })}
             </ul>
+            {filteredFindings.length === 0 && (
+              <div style={{ padding: '16px 0', color: 'var(--text-muted)' }}>
+                No findings in this status yet.
+              </div>
+            )}
           </div>
         </div>
       )}
