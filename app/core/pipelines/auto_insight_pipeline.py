@@ -1,6 +1,5 @@
 from app.core.pipelines.embedding_pipeline import store_chunks
-from app.core.contracts.profile_builder import build_clause_records, build_contract_profile
-from app.core.review.review_pipeline import build_review_findings
+from app.core.generation.contract_analyzer import LLMContractAnalyzer
 
 class AutoInsightPipeline:
     def __init__(self, ingestion_pipeline, generator, insight_store, evaluator=None):
@@ -8,15 +7,11 @@ class AutoInsightPipeline:
         self.generator = generator
         self.insight_store = insight_store
         self.evaluator = evaluator
+        self.contract_analyzer = LLMContractAnalyzer()
 
     def run(self, file_path: str, document_id: str):
         # Step 1: Ingest document → chunks
         chunks = self.ingestion_pipeline(file_path, document_id)
-
-        # Step 1.5: Build contract profile + normalize clause metadata
-        contract_profile = build_contract_profile(document_id, chunks)
-        clause_records = build_clause_records(chunks)
-        review_findings = build_review_findings(contract_profile, clause_records)
 
         # Step 2: Store chunks in vector DB (added for RAG)
         store_chunks(chunks)
@@ -29,13 +24,27 @@ class AutoInsightPipeline:
         selected_docs = docs[:15]
         context = "\n\n".join(selected_docs)
 
-        # Step 5: Generate intelligence
+        # Step 5: Advanced LLM Contract Metadata Extraction
+        # Extract profile from preamble/intro context
+        contract_profile = self.contract_analyzer.extract_profile(document_id, context)
+        
+        # Extract specific clauses from chunks
+        clause_records = self.contract_analyzer.extract_clauses(chunks)
+        contract_profile["clause_index"] = [
+            {"title": c["title"], "type": c["type"], "chunk_id": c["chunk_id"], "page_number": c["page_number"]}
+            for c in clause_records
+        ]
+        
+        # Issue spotting acting as legal reviewer
+        review_findings = self.contract_analyzer.spot_issues(contract_profile, clause_records)
+
+        # Step 6: Generate general structure/opportunities intelligence
         insights = self.generator.generate(
             docs=selected_docs,
             mode="document"
         )
 
-        # Step 6: Evaluate Insights (New Evaluation Layer)
+        # Step 7: Evaluate Insights
         evaluation = {}
         review_audit = {}
         if self.evaluator:
@@ -46,7 +55,7 @@ class AutoInsightPipeline:
                 contract_profile=contract_profile,
             )
 
-        # Step 7: Combined Data Object (Safe Storage)
+        # Step 8: Combined Data Object (Safe Storage)
         combined_result = {
             "contract_profile": contract_profile,
             "clauses": clause_records,
@@ -56,7 +65,8 @@ class AutoInsightPipeline:
             "review_audit": review_audit,
         }
 
-        # Step 8: Save result to persistent store
+        # Step 9: Save result to persistent store
         self.insight_store.save(document_id, combined_result)
 
         return combined_result
+

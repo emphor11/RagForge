@@ -1,0 +1,48 @@
+MUTUAL NON-DISCLOSURE AGREEMENT
+
+This Mutual Non-Disclosure Agreement ("Agreement") is made and entered into as of 15 March 2026 ("Effective Date") by and between Telecommunications Consultants India Limited, a Government of India enterprise having its corporate office at TCIL Bhawan, Greater Kailash-I, New Delhi 110048 ("TCIL"), and SecureNet Systems Private Limited, a company incorporated under the Companies Act, 2013 and having its registered office at 21 Tech Park, Bengaluru, Karnataka 560103 ("SecureNet"). TCIL and SecureNet are each referred to herein as a "Party" and collectively as the "Parties".
+
+WHEREAS, the Parties wish to evaluate a potential business relationship in connection with the supply, installation, testing, commissioning, annual maintenance, and support of a fraud detection and subscriber monitoring solution for wireline services (the "Business Purpose"); and
+
+WHEREAS, in connection with the Business Purpose, each Party may disclose to the other certain confidential, proprietary, technical, commercial, or business information that should be protected from unauthorized use or disclosure.
+
+NOW, THEREFORE, in consideration of the mutual covenants and promises set forth below, the Parties agree as follows:
+
+1. Definition of Confidential Information.
+For purposes of this Agreement, "Confidential Information" means any information disclosed by one Party ("Disclosing Party") to the other Party ("Receiving Party"), whether in written, oral, electronic, visual, or other form, that is designated as confidential or that reasonably should be understood to be confidential given the nature of the information and the circumstances of disclosure. Confidential Information includes, without limitation, technical specifications, software, source code, designs, plans, diagrams, prototypes, subscriber data, consumption patterns, pricing, business strategies, customer information, and all analyses, compilations, studies, or other materials prepared by the Receiving Party that contain or reflect such information.
+
+2. Permitted Use and Non-Disclosure.
+The Receiving Party shall use the Confidential Information solely for the Business Purpose and for no other purpose. The Receiving Party shall hold the Confidential Information in strict confidence and shall protect it using at least the same degree of care that it uses to protect its own confidential information of a similar nature, but in no event less than reasonable care. The Receiving Party shall disclose Confidential Information only to those of its employees, officers, directors, consultants, and contractors who have a strict need to know such information for the Business Purpose and who are bound by confidentiality obligations no less protective than those set forth in this Agreement.
+
+3. Return or Destruction.
+Upon written request of the Disclosing Party, the Receiving Party shall promptly return or destroy all Confidential Information, including all copies, extracts, and summaries thereof, and certify such destruction in writing; provided, however, that the Receiving Party may retain one archival copy solely for legal, compliance, or recordkeeping purposes.
+
+4. Exclusions.
+The obligations under this Agreement shall not apply to information that the Receiving Party can demonstrate by written records: (a) was lawfully in its possession without restriction before receipt from the Disclosing Party; (b) was independently developed without reference to the Confidential Information; (c) becomes publicly available through no breach of this Agreement; (d) is lawfully received from a third party without breach of any confidentiality obligation; or (e) is required to be disclosed pursuant to law, subpoena, court order, or regulatory demand, provided that the Receiving Party gives prompt written notice to the Disclosing Party, to the extent legally permitted, and reasonably cooperates in seeking confidential treatment.
+
+5. No License or Transfer of Rights.
+All Confidential Information shall remain the exclusive property of the Disclosing Party. Nothing in this Agreement grants the Receiving Party any license or other rights, whether express or implied, under any patent, copyright, trademark, trade secret, or other intellectual property right of the Disclosing Party.
+
+6. Remedies.
+Each Party acknowledges that unauthorized use or disclosure of Confidential Information may cause irreparable harm for which monetary damages may be an inadequate remedy. Accordingly, the Disclosing Party shall be entitled to seek injunctive relief, specific performance, and any other remedies available at law or in equity in the event of actual or threatened breach of this Agreement.
+
+7. Term and Survival.
+This Agreement shall commence on the Effective Date and remain in force for three (3) years. The confidentiality and non-use obligations with respect to Confidential Information disclosed during the term shall survive for five (5) years from the date of disclosure, except that trade secrets shall be protected for so long as they remain trade secrets under applicable law.
+
+8. Governing Law and Dispute Resolution.
+This Agreement shall be governed by and construed in accordance with the laws of India, without regard to conflict of law principles. Any dispute arising out of or in connection with this Agreement shall be referred to and finally resolved by arbitration in New Delhi in accordance with the Arbitration and Conciliation Act, 1996. The arbitration shall be conducted by a sole arbitrator jointly appointed by the Parties. The language of arbitration shall be English.
+
+9. Entire Agreement; Amendment; Assignment.
+This Agreement constitutes the entire agreement between the Parties with respect to its subject matter and supersedes all prior discussions, understandings, and agreements relating thereto. Any amendment to this Agreement must be in writing and signed by authorized representatives of both Parties. Neither Party may assign this Agreement without the prior written consent of the other Party, except to a successor in connection with a merger, reorganization, or sale of substantially all of its assets.
+
+IN WITNESS WHEREOF, the Parties have caused this Agreement to be executed by their duly authorized representatives.
+
+Telecommunications Consultants India Limited
+By: ____________________
+Name: __________________
+Title: __________________
+
+SecureNet Systems Private Limited
+By: ____________________
+Name: __________________
+Title: __________________

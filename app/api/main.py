@@ -35,6 +35,11 @@ def ensure_generation_ready(generator: StructuredGenerator):
         )
 
 
+@app.get("/")
+def root():
+    return {"status": "ok", "version": "2.0", "message": "RAGForge v2 Engine"}
+
+
 pipeline = AutoInsightPipeline(
     ingestion_pipeline=ingest_document,
     generator=StructuredGenerator(),
@@ -79,6 +84,24 @@ def upload(file: UploadFile = File(...)):
 def list_documents():
     store = InsightStore()
     return store.list_all()
+
+
+@app.delete("/documents/{document_id}")
+def delete_document(document_id: str):
+    store = InsightStore()
+    data = store.load(document_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    # Remove from insights DB
+    path = os.path.join(store.base_path, f"{document_id}.json")
+    if os.path.exists(path):
+        os.remove(path)
+        
+    # Remove from Vector DB
+    chroma = ChromaStore()
+    chroma.collection.delete(where={"source": document_id})
+    return {"message": "Document deleted successfully"}
 
 
 @app.get("/insights/{document_id}")

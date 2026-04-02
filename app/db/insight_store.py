@@ -8,6 +8,9 @@ class InsightStore:
         os.makedirs(self.base_path, exist_ok=True)
 
     def save(self, document_id: str, data: dict):
+        import time
+        if "uploaded_at" not in data:
+            data["uploaded_at"] = time.time()
         path = os.path.join(self.base_path, f"{document_id}.json")
 
         with open(path, "w") as f:
@@ -59,7 +62,12 @@ class InsightStore:
         for filename in os.listdir(self.base_path):
             if filename.endswith(".json"):
                 path = os.path.join(self.base_path, filename)
-                mtime = os.path.getmtime(path)
+                try:
+                    with open(path, "r") as f:
+                        data = json.load(f)
+                        mtime = data.get("uploaded_at", os.path.getmtime(path))
+                except Exception:
+                    mtime = os.path.getmtime(path)
                 doc_id = filename.replace(".json", "")
 
                 docs.append({

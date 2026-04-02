@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { API_BASE_URL } from "../config";
 
 const Dashboard = ({ onUploadSuccess }) => {
   const [file, setFile] = useState(null);
@@ -21,7 +22,7 @@ const Dashboard = ({ onUploadSuccess }) => {
     formData.append("file", file);
 
     try {
-      const res = await fetch("http://127.0.0.1:8000/upload", {
+      const res = await fetch(`${API_BASE_URL}/upload`, {
         method: "POST",
         body: formData,
       });

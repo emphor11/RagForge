@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { API_BASE_URL } from "../config";
 
 const Reports = () => {
   const [data, setData] = useState(null);
@@ -12,7 +13,7 @@ const Reports = () => {
   const fetchReports = async () => {
     setLoading(true);
     try {
-      const res = await fetch("http://127.0.0.1:8000/reports");
+      const res = await fetch(`${API_BASE_URL}/reports`);
       if (!res.ok) throw new Error("Failed to load reports");
       const result = await res.json();
       setData(result);

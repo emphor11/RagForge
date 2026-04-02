@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { API_BASE_URL } from "../config";
 
 const Analytics = () => {
   const [data, setData] = useState(null);
@@ -12,7 +13,7 @@ const Analytics = () => {
   const fetchAnalytics = async () => {
     setLoading(true);
     try {
-      const res = await fetch("http://127.0.0.1:8000/analytics");
+      const res = await fetch(`${API_BASE_URL}/analytics`);
       if (!res.ok) throw new Error("Failed to load analytics");
       const result = await res.json();
       setData(result);

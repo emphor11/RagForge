@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { API_BASE_URL } from "../config";
 
 const Documents = () => {
   const [documents, setDocuments] = useState([]);
@@ -14,7 +15,7 @@ const Documents = () => {
   const fetchDocuments = async () => {
     setLoading(true);
     try {
-      const res = await fetch("http://127.0.0.1:8000/documents");
+      const res = await fetch(`${API_BASE_URL}/documents`);
       const data = await res.json();
       setDocuments(data);
     } catch (err) {
