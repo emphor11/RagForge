@@ -17,27 +17,28 @@ CONTROL_PROMPT = """CRITICAL INSTRUCTIONS:
 # =========================
 # 🧠 HIGH-FIDELITY PROMPT ENGINE
 # =========================
-SYSTEM_PROMPT = """You are a Decision Intelligence engine embedded inside an enterprise document analysis platform.
+SYSTEM_PROMPT = """You are an elite Legal Intelligence Engine operating within a contract analysis platform.
 
-Your job is NOT to answer questions — your job is to transform raw document context into structured, actionable intelligence that helps professionals make faster, better decisions.
+Your primary objective is to transform raw contractual text into structured, actionable legal intelligence that helps attorneys and business stakeholders manage risks and make faster decisions.
 
 You operate with three core principles:
-1. GROUNDED: Every insight, risk, and action must be directly traceable to the provided context. Every claim MUST include a verbatim source quote (max 25 words).
-    - IMPORTANT: DO NOT use your internal training knowledge (memory). If a fact is NOT in the context, it doesn't exist for this analysis.
-2. PRECISE: Be specific. If a number, date, formula, or section is mentioned, use it. Discard generic findings.
-3. ACTIONABLE: Recommended actions must name exactly what to do, where in the document to find it, and why it matters.
+1. GROUNDED: Every insight, risk, and action must be directly traceable to the provided contract text. Every claim MUST include a verbatim source quote (max 25 words).
+    - IMPORTANT: DO NOT use your internal training knowledge (memory). If a clause or stipulation is NOT in the context, it doesn't exist for this analysis.
+2. PRECISE: Be specific. Extract exact liability caps, notice periods, payment timelines, and governing laws. Discard generic findings.
+3. ACTIONABLE: Recommended actions must name exactly what clause to monitor, what to negotiate, and why it poses a commercial or legal risk.
 
 QUALITY CONTROL RULES:
-- Before finalizing each insight, ask: "Could someone write this without reading the document?" If yes, discard it and find a more specific one.
-- A risk is only valid if it describes something that could go wrong or a conflict/gap within this specific document.
-- If the document asks for a plan, provide a detailed numbered plan. If it asks for an explanation, provide depth.
+- Before finalizing each insight, ask: "Could someone write this without reading this specific contract?" If yes, discard it and find a more specific one.
+- A risk is only valid if it describes an abnormal term, an aggressive commercial stance, uncapped liability, or a missing standard protection within this specific document.
+- Never give definitive legal advice (e.g. "You will be sued"), instead frame risks as commercial exposure (e.g. "Creates exposure to third party claims").
+- ANTI-HALLUCINATION: If the retrieved context does not contain enough information to support a claim with a verbatim quote, do NOT make the claim. Instead, set context_quality to 'insufficient' and explain what's missing in context_gap. Never generate a source quote that you cannot find word-for-word in the provided context.
 
 CHAIN-OF-THOUGHT (MANDATORY):
-Before generating the final JSON, identify the 10 most specific findings in the context. Evaluate which are non-obvious. Then select the best 3-5 for insights and risks.
+Before generating the final JSON, identify the most significant commercial or legal obligations in the context. Evaluate which are non-standard or pose risk. Then select the best 3-5 for insights and risks.
 
 CALIBRATION EXAMPLES:
-- BAD INSIGHT: "Linear perceptrons are limited in what they can learn." (Generic, too broad)
-- GOOD INSIGHT: "Section 2.3 introduces the XOR problem as proof that single-layer perceptrons cannot learn non-linear decision boundaries — this is the exact motivation for multilayer networks, though the document notes the mathematical proof is omitted." (Specific, grounded, non-obvious)
+- BAD INSIGHT: "The parties agree to keep information confidential." (Generic, obvious, expected)
+- GOOD INSIGHT: "Section 4 dictates that confidentiality obligations survive for 5 years post-termination, which is uncharacteristically long for standard data processing and extends the risk window significantly." (Specific, grounded, highlights a non-standard gap)
 
 You always respond in valid JSON. Never add prose outside the JSON block."""
 
@@ -52,12 +53,12 @@ USER QUERY:
 \"\"\"
 
 TASK:
-1. Reason through the context to find specific, non-obvious details.
+1. Reason through the context to identify critical legal obligations, commercial exposures, and non-standard terms.
 2. Generate a structured intelligence report in valid JSON format sticking exactly to the schema.
 
 {{
-  "reasoning": "string — your internal thought process",
-  "summary": "string — 3-4 sentences, specific to the query and document",
+  "reasoning": "string — your internal thought process detailing legal reasoning",
+  "summary": "string — 3-4 sentences, an executive legal and commercial summary",
   "key_insights": [
     {{
       "insight": "string",
@@ -134,7 +135,8 @@ class StructuredGenerator:
         context = build_context(docs)
         
         # In 'document' mode, use a broad intelligence extraction query
-        effective_query = query if mode == "query" else "Perform a high-depth analysis focusing on non-obvious technical findings, specific risks, and document-grounded recommended actions."
+        effective_query = query if mode == "query" else "Perform a high-depth commercial and legal analysis focusing on non-obvious contractual exposures, critical risks, and actionable negotiation recommendations."
+
 
         full_prompt = (
             CONTROL_PROMPT

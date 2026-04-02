@@ -372,6 +372,11 @@ def query_api(request: QueryRequest):
                 detail="Failed to rerank retrieved context."
             ) from exc
 
+        print(f"\n--- RETRIEVED CHUNKS FOR QUERY ---")
+        for i, chunk in enumerate(final_docs):
+            print(f"Chunk {i+1}: {chunk['content'][:200]}...\n")
+        print(f"--- END CHUNKS ---\n")
+
         docs = [doc["content"] for doc in final_docs]
 
     generator = StructuredGenerator()

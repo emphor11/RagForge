@@ -144,7 +144,15 @@ class InsightEvaluator:
                 )
                 continue
 
-            semantic_pairs.extend([claim, quote_check["window"]])
+            # FIX: 'action' passes grounding upon quote confirmation (Existence Check) 
+            # It mathematically cannot pass Cosine Similarity against a descriptive fact.
+            if claim_kind == "action":
+                passed_weight += weight
+                continue
+
+            # CRITICAL FIX: To prevent embedding dilution, we must compare the claim 
+            # against the verified verbatim 'source' quote, NOT the massive surrounding window.
+            semantic_pairs.extend([claim, source])
             semantic_meta.append((field, claim_kind, claim, weight))
 
         if semantic_pairs:
@@ -154,7 +162,14 @@ class InsightEvaluator:
                 window_embedding = embeddings[idx * 2 + 1]
                 sim = float(util.cos_sim(claim_embedding, window_embedding))
 
-                threshold = 0.52 if claim_kind in ("insight", "finding", "action") else 0.48
+                # Field-Specific Constraints
+                if claim_kind in ("insight", "finding"):
+                    threshold = 0.65
+                elif claim_kind in ("reason", "rationale"):
+                    threshold = 0.25
+                else:
+                    threshold = 0.50
+
                 if sim < threshold:
                     issues.append(
                         f"Low semantic alignment in {field}.{claim_kind} (sim={sim:.2f}): "

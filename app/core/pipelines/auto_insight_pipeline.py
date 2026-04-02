@@ -22,6 +22,12 @@ class AutoInsightPipeline:
         # Step 4: Take strategic chunks (Intro/Summary priority)
         # Instead of just longest, take first 15 chunks to preserve logical flow
         selected_docs = docs[:15]
+        
+        print(f"\n--- RETRIEVED CHUNKS FOR UPLOAD ANALYSIS ---")
+        for i, chunk_text in enumerate(selected_docs):
+            print(f"Chunk {i+1}: {chunk_text[:200]}...\n")
+        print(f"--- END CHUNKS ---\n")
+        
         context = "\n\n".join(selected_docs)
 
         # Step 5: Advanced LLM Contract Metadata Extraction
