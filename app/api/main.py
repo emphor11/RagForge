@@ -287,6 +287,10 @@ class QueryRequest(BaseModel):
     document_id: Optional[str] = None
 
 
+class FindingStatusUpdate(BaseModel):
+    status: str
+
+
 @app.post("/query")
 def query_api(request: QueryRequest):
     query = request.query
@@ -357,3 +361,22 @@ def query_api(request: QueryRequest):
         ) from exc
 
     return output
+
+
+@app.patch("/contracts/{document_id}/findings/{finding_index}/status")
+def update_contract_finding_status(document_id: str, finding_index: int, payload: FindingStatusUpdate):
+    allowed_statuses = {"open", "reviewed", "accepted", "dismissed", "escalated"}
+    if payload.status not in allowed_statuses:
+        raise HTTPException(status_code=400, detail="Invalid finding status.")
+
+    store = InsightStore()
+    updated_finding = store.update_review_finding_status(document_id, finding_index, payload.status)
+
+    if not updated_finding:
+        raise HTTPException(status_code=404, detail="Contract or finding not found.")
+
+    return {
+        "document_id": document_id,
+        "finding_index": finding_index,
+        "finding": updated_finding,
+    }

@@ -19,6 +19,7 @@ const DocumentAnalysis = () => {
   const [queryResult, setQueryResult] = useState(null);
   const [queryLoading, setQueryLoading] = useState(false);
   const [showReasoning, setShowReasoning] = useState(false);
+  const [updatingFindingIndex, setUpdatingFindingIndex] = useState(null);
 
   useEffect(() => {
     loadDocumentInsights();
@@ -162,6 +163,38 @@ const DocumentAnalysis = () => {
     }
   };
 
+  const handleFindingStatusUpdate = async (findingIndex, status) => {
+    if (updatingFindingIndex !== null) return;
+
+    setUpdatingFindingIndex(findingIndex);
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/contracts/${encodeURIComponent(document_id)}/findings/${findingIndex}/status`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ status }),
+        }
+      );
+
+      if (!res.ok) throw new Error("Failed to update finding status");
+
+      const data = await res.json();
+      setContractFindings((current) =>
+        current.map((finding, idx) =>
+          idx === findingIndex ? data.finding : finding
+        )
+      );
+    } catch (err) {
+      console.error(err);
+      setError("Failed to update review finding status.");
+    } finally {
+      setUpdatingFindingIndex(null);
+    }
+  };
+
   const getSeverityLabel = (severity) => {
     const s = severity?.toLowerCase();
     if (s === "high") return "High Risk";
@@ -204,6 +237,7 @@ const DocumentAnalysis = () => {
   const queryPlaceholder = contractProfile
     ? "e.g., What is the governing law? Is there a termination right? What does the confidentiality clause allow?"
     : "e.g., Extract the step-by-step implementation plan from section 4.";
+  const isContractReview = Boolean(contractProfile);
 
   if (loading) {
     return (
@@ -244,107 +278,31 @@ const DocumentAnalysis = () => {
         <div className="stat-card">
           <div className="stat-icon icon-bg-blue">📄</div>
           <div className="stat-value" style={{ fontSize: '14px', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>{document_id}</div>
-          <div className="stat-label">Analyzing File</div>
+          <div className="stat-label">{isContractReview ? "Contract File" : "Analyzing File"}</div>
         </div>
         <div className="stat-card">
           <div className="stat-icon icon-bg-green">📈</div>
-          <div className="stat-value">{result.key_insights?.length || 0}</div>
-          <div className="stat-label">Grounded Insights</div>
+          <div className="stat-value">{isContractReview ? contractFindings.length : (result.key_insights?.length || 0)}</div>
+          <div className="stat-label">{isContractReview ? "Review Findings" : "Grounded Insights"}</div>
         </div>
         <div className="stat-card">
           <div className="stat-icon icon-bg-orange">⏱️</div>
-          <div className="stat-value">{(result.overall_confidence * 100).toFixed(0)}%</div>
-          <div className="stat-label">Avg Match Score</div>
+          <div className="stat-value">
+            {isContractReview
+              ? `${contractClauses.length}`
+              : `${(result.overall_confidence * 100).toFixed(0)}%`}
+          </div>
+          <div className="stat-label">{isContractReview ? "Clauses Indexed" : "Avg Match Score"}</div>
         </div>
         <div className="stat-card">
           <div className="stat-icon icon-bg-purple">🛡️</div>
-          <div className="stat-value">{result.evaluation?.score || 0}%</div>
-          <div className="stat-label">Intelligence Quality</div>
+          <div className="stat-value">
+            {isContractReview
+              ? `${contractReviewAudit?.score ?? 0}%`
+              : `${result.evaluation?.score || 0}%`}
+          </div>
+          <div className="stat-label">{isContractReview ? "Review Audit" : "Intelligence Quality"}</div>
         </div>
-      </div>
-
-      {/* ===== EVALUATION REPORT (NEW) ===== */}
-      {result.evaluation && (
-        <div className="card" style={{ marginBottom: '20px', borderLeft: `4px solid ${result.evaluation.status === 'pass' ? 'var(--success)' : 'var(--danger)'}` }}>
-          <div className="card-header">
-            <div className="card-title">
-              <div className="card-title-icon" style={{ background: result.evaluation.status === 'pass' ? 'var(--success-bg)' : 'var(--danger-bg)', color: result.evaluation.status === 'pass' ? 'var(--success)' : 'var(--danger)' }}>
-                {result.evaluation.status === 'pass' ? '✅' : '⚠️'}
-              </div>
-              Automated Evaluation Report
-            </div>
-            <div className={`risk-badge ${result.evaluation.status === 'pass' ? 'low' : 'high'}`} style={{ textTransform: 'uppercase' }}>
-              {result.evaluation.status === 'pass' ? 'Audit Passed' : 'Audit Failed'}
-            </div>
-          </div>
-          <div className="card-body">
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '15px', marginBottom: '20px' }}>
-               <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: '18px', fontWeight: '700' }}>{result.evaluation.metrics?.grounding}%</div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Grounding</div>
-               </div>
-               <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: '18px', fontWeight: '700' }}>{result.evaluation.metrics?.quality}%</div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Richness</div>
-               </div>
-               <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: '18px', fontWeight: '700' }}>{result.evaluation.metrics?.structure}%</div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Structure</div>
-               </div>
-               <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: '18px', fontWeight: '700' }}>{result.evaluation.metrics?.coverage ?? 0}%</div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Coverage</div>
-               </div>
-            </div>
-
-            {/* Recommendation Alert */}
-            {result.evaluation.recommendation && (
-              <div style={{ 
-                padding: '12px', 
-                borderRadius: '8px', 
-                marginBottom: '16px',
-                background: result.evaluation.status === 'pass' ? 'var(--success-bg)' : 'var(--danger-bg)',
-                border: `1px solid ${result.evaluation.status === 'pass' ? 'var(--success)' : 'var(--danger)'}`,
-                color: result.evaluation.status === 'pass' ? 'var(--success-dark)' : 'var(--danger-dark)',
-                fontSize: '14px',
-                fontWeight: '500',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px'
-              }}>
-                <span style={{ fontSize: '18px' }}>{result.evaluation.status === 'pass' ? '🛡️' : '🚫'}</span>
-                {result.evaluation.recommendation}
-              </div>
-            )}
-            
-            {result.evaluation.issues?.length > 0 && (
-              <div style={{ padding: '12px', background: 'rgba(0,0,0,0.03)', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
-                <strong style={{ fontSize: '13px', color: 'var(--text-primary)', display: 'block', marginBottom: '8px' }}>Audit Log ({result.evaluation.issue_count} items):</strong>
-                <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                  {result.evaluation.issues.map((issue, idx) => (
-                    <li key={idx} style={{ marginBottom: '4px' }}>{issue}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ===== REASONING SECTION (COLLAPSIBLE) ===== */}
-      <div className="card reasoning-card" style={{ marginBottom: '20px' }}>
-        <div className="card-header" onClick={() => setShowReasoning(!showReasoning)} style={{ cursor: 'pointer', paddingBottom: showReasoning ? '16px' : '20px' }}>
-          <div className="card-title">
-            <div className="card-title-icon icon-bg-purple">🧠</div>
-            AI Reasoning Engine
-          </div>
-          <span className="toggle-icon">{showReasoning ? '−' : '+'}</span>
-        </div>
-        {showReasoning && (
-          <div className="card-body reasoning-body">
-            <p className="reasoning-text">{result.reasoning}</p>
-          </div>
-        )}
       </div>
 
       {/* ===== CONTRACT OVERVIEW ===== */}
@@ -412,6 +370,89 @@ const DocumentAnalysis = () => {
           </div>
         </div>
       )}
+
+      {/* ===== EVALUATION REPORT (GENERIC AI) ===== */}
+      {result.evaluation && (
+        <div className="card" style={{ marginBottom: '20px', borderLeft: `4px solid ${result.evaluation.status === 'pass' ? 'var(--success)' : 'var(--danger)'}` }}>
+          <div className="card-header">
+            <div className="card-title">
+              <div className="card-title-icon" style={{ background: result.evaluation.status === 'pass' ? 'var(--success-bg)' : 'var(--danger-bg)', color: result.evaluation.status === 'pass' ? 'var(--success)' : 'var(--danger)' }}>
+                {result.evaluation.status === 'pass' ? '✅' : '⚠️'}
+              </div>
+              AI Analysis Audit
+            </div>
+            <div className={`risk-badge ${result.evaluation.status === 'pass' ? 'low' : 'high'}`} style={{ textTransform: 'uppercase' }}>
+              {result.evaluation.status === 'pass' ? 'Audit Passed' : 'Audit Failed'}
+            </div>
+          </div>
+          <div className="card-body">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '15px', marginBottom: '20px' }}>
+               <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '18px', fontWeight: '700' }}>{result.evaluation.metrics?.grounding}%</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Grounding</div>
+               </div>
+               <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '18px', fontWeight: '700' }}>{result.evaluation.metrics?.quality}%</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Richness</div>
+               </div>
+               <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '18px', fontWeight: '700' }}>{result.evaluation.metrics?.structure}%</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Structure</div>
+               </div>
+               <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '18px', fontWeight: '700' }}>{result.evaluation.metrics?.coverage ?? 0}%</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Coverage</div>
+               </div>
+            </div>
+
+            {result.evaluation.recommendation && (
+              <div style={{
+                padding: '12px',
+                borderRadius: '8px',
+                marginBottom: '16px',
+                background: result.evaluation.status === 'pass' ? 'var(--success-bg)' : 'var(--danger-bg)',
+                border: `1px solid ${result.evaluation.status === 'pass' ? 'var(--success)' : 'var(--danger)'}`,
+                color: result.evaluation.status === 'pass' ? 'var(--success-dark)' : 'var(--danger-dark)',
+                fontSize: '14px',
+                fontWeight: '500',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px'
+              }}>
+                <span style={{ fontSize: '18px' }}>{result.evaluation.status === 'pass' ? '🛡️' : '🚫'}</span>
+                {result.evaluation.recommendation}
+              </div>
+            )}
+
+            {result.evaluation.issues?.length > 0 && (
+              <div style={{ padding: '12px', background: 'rgba(0,0,0,0.03)', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+                <strong style={{ fontSize: '13px', color: 'var(--text-primary)', display: 'block', marginBottom: '8px' }}>Audit Log ({result.evaluation.issue_count} items):</strong>
+                <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                  {result.evaluation.issues.map((issue, idx) => (
+                    <li key={idx} style={{ marginBottom: '4px' }}>{issue}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ===== REASONING SECTION (COLLAPSIBLE) ===== */}
+      <div className="card reasoning-card" style={{ marginBottom: '20px' }}>
+        <div className="card-header" onClick={() => setShowReasoning(!showReasoning)} style={{ cursor: 'pointer', paddingBottom: showReasoning ? '16px' : '20px' }}>
+          <div className="card-title">
+            <div className="card-title-icon icon-bg-purple">🧠</div>
+            AI Reasoning Engine
+          </div>
+          <span className="toggle-icon">{showReasoning ? '−' : '+'}</span>
+        </div>
+        {showReasoning && (
+          <div className="card-body reasoning-body">
+            <p className="reasoning-text">{result.reasoning}</p>
+          </div>
+        )}
+      </div>
 
       {/* ===== CLAUSE INVENTORY ===== */}
       {contractClauses.length > 0 && (
@@ -535,6 +576,32 @@ const DocumentAnalysis = () => {
                   {finding.source_quotes?.map((quote, quoteIdx) => (
                     <blockquote key={quoteIdx} className="source-quote">"{quote}"</blockquote>
                   ))}
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '12px' }}>
+                    <button
+                      className="query-btn"
+                      style={{ padding: '8px 12px', minWidth: 'auto' }}
+                      disabled={updatingFindingIndex === idx}
+                      onClick={() => handleFindingStatusUpdate(idx, "accepted")}
+                    >
+                      Accept
+                    </button>
+                    <button
+                      className="query-btn"
+                      style={{ padding: '8px 12px', minWidth: 'auto', background: 'var(--warning)' }}
+                      disabled={updatingFindingIndex === idx}
+                      onClick={() => handleFindingStatusUpdate(idx, "dismissed")}
+                    >
+                      Dismiss
+                    </button>
+                    <button
+                      className="query-btn"
+                      style={{ padding: '8px 12px', minWidth: 'auto', background: 'var(--danger)' }}
+                      disabled={updatingFindingIndex === idx}
+                      onClick={() => handleFindingStatusUpdate(idx, "escalated")}
+                    >
+                      Escalate
+                    </button>
+                  </div>
                   <div style={{ textAlign: 'right', marginTop: '4px' }}>
                     {renderConfidence(finding.confidence)}
                   </div>

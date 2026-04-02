@@ -24,6 +24,19 @@ class InsightStore:
 
         return json_data
 
+    def update_review_finding_status(self, document_id: str, finding_index: int, status: str):
+        data = self.load(document_id)
+        if not data:
+            return None
+
+        findings = data.get("review_findings", [])
+        if finding_index < 0 or finding_index >= len(findings):
+            return None
+
+        findings[finding_index]["status"] = status
+        self.save(document_id, data)
+        return findings[finding_index]
+
     def list_all(self):
         docs = []
 
