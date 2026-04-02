@@ -124,10 +124,14 @@ def get_contract_clauses(document_id: str):
             detail="Contract profile not available for this document yet."
         )
 
+    clauses = data.get("clauses")
+    if clauses is None:
+        clauses = contract_profile.get("clause_index", [])
+
     return {
         "document_id": document_id,
-        "clauses": contract_profile.get("clause_index", []),
-        "count": len(contract_profile.get("clause_index", [])),
+        "clauses": clauses,
+        "count": len(clauses),
     }
 
 

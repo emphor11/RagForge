@@ -416,8 +416,14 @@ const DocumentAnalysis = () => {
                     </span>
                   </div>
                   <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                    Page {clause.page_number} · Chunk {clause.chunk_id}
+                    Page {clause.page_number} · {clause.chunk_ids?.length ? `${clause.chunk_ids.length} chunk${clause.chunk_ids.length > 1 ? 's' : ''}` : `Chunk ${clause.chunk_id}`}
                   </div>
+                  {clause.text_preview && (
+                    <p style={{ margin: '10px 0 0 0', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                      {clause.text_preview}
+                      {clause.clause_text && clause.clause_text.length > clause.text_preview.length ? "..." : ""}
+                    </p>
+                  )}
                 </div>
               ))}
             </div>
