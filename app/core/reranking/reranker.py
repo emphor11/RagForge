@@ -8,7 +8,7 @@ class Reranker:
 
     def _get_model(self):
         if self.model is None:
-            self.model = CrossEncoder(self.model_name)
+            self.model = CrossEncoder(self.model_name, local_files_only=True)
         return self.model
 
     def rerank(self, query, documents, top_k=5):

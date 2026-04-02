@@ -8,7 +8,7 @@ class Embedder:
 
     def _get_model(self):
         if self.model is None:
-            self.model = SentenceTransformer(self.model_name)
+            self.model = SentenceTransformer(self.model_name, local_files_only=True)
         return self.model
 
     def embed(self, texts):

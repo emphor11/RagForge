@@ -1,0 +1,24 @@
+MASTER SERVICES AGREEMENT
+
+This Master Services Agreement ("Agreement") is entered into on 1 April 2026 ("Effective Date") between ClientCo Private Limited, a company incorporated under the laws of India and having its registered office in Bengaluru ("Client"), and VendorCo Services LLP, a limited liability partnership organized under the laws of India and having its principal office in New Delhi ("Vendor").
+
+1. Services.
+Vendor will provide implementation, support, and maintenance services for Client's internal workflow platform as described in applicable Statements of Work.
+
+2. Fees and Payment Terms.
+Client shall pay all undisputed invoices upon receipt. Vendor may suspend services for delayed payment after giving five (5) days' written notice. This Agreement does not provide for interest, late fees, or other overdue payment remedies.
+
+3. Confidentiality.
+Each party shall keep Confidential Information of the other party strictly confidential and shall use such information solely for the purpose of performing this Agreement.
+
+4. Term and Termination.
+This Agreement will remain in effect for an initial term of two (2) years. Either party may terminate this Agreement on fifteen (15) days' written notice. This clause does not expressly describe termination for material breach, cure periods, or termination for cause.
+
+5. Intellectual Property.
+Each party retains ownership of its pre-existing intellectual property. Work product ownership will be addressed in each Statement of Work.
+
+6. Governing Law and Dispute Resolution.
+This Agreement shall be governed by the laws of India. Any dispute arising out of or in connection with this Agreement shall be referred to arbitration.
+
+7. Entire Agreement.
+This Agreement constitutes the entire agreement between the parties with respect to its subject matter and may only be amended in writing signed by both parties.

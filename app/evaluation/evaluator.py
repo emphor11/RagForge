@@ -168,7 +168,7 @@ class InsightEvaluator:
 
     def _get_embedder(self):
         if self.embedder is None:
-            self.embedder = SentenceTransformer(self.embedder_model_name)
+            self.embedder = SentenceTransformer(self.embedder_model_name, local_files_only=True)
         return self.embedder
 
     def _normalize_text(self, text: str) -> str:

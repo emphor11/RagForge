@@ -12,7 +12,7 @@ class ChromaStore:
         ids = [str(uuid.uuid4()) for _ in range(len(chunks))]
 
         documents = [c["content"] for c in chunks]
-        metadatas = [c["metadata"] for c in chunks]
+        metadatas = [self._sanitize_metadata(c["metadata"]) for c in chunks]
 
         self.collection.upsert(
             ids=ids,
@@ -20,6 +20,18 @@ class ChromaStore:
             embeddings=embeddings,
             metadatas=metadatas
         )
+
+    def _sanitize_metadata(self, metadata):
+        sanitized = {}
+        for key, value in metadata.items():
+            if isinstance(value, list):
+                if not value:
+                    sanitized[key] = ""
+                else:
+                    sanitized[key] = " | ".join(str(item) for item in value)
+            else:
+                sanitized[key] = value
+        return sanitized
 
     def query(self, query_embedding, n_results=5, where=None):
         return self.collection.query(

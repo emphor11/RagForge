@@ -324,6 +324,8 @@ def spot_clause_issues(contract_profile: dict, clauses: list[dict]) -> list[dict
         needs_forum_specificity = (
             "exclusive jurisdiction" not in text
             and "courts of" not in text
+            and "courts in" not in text
+            and "jurisdiction of courts in" not in text
             and "seat" not in text
             and "venue" not in text
         )
@@ -347,5 +349,32 @@ def spot_clause_issues(contract_profile: dict, clauses: list[dict]) -> list[dict
                 source_clause=governing_law_clause,
                 confidence=0.71,
             )
+
+    if document_type == "nda":
+        remedies_clause = clause_lookup.get("remedies")
+        if not remedies_clause:
+            add_finding(
+                "missing_protection",
+                "remedies",
+                "low",
+                "No express injunctive-relief or remedies clause detected",
+                "The NDA does not appear to include a dedicated remedies clause. Review whether the disclosing party reserves injunctive relief or other express remedies for unauthorized disclosure.",
+                confidence=0.68,
+            )
+
+        obligations_clause = clause_lookup.get("permitted_use_and_non_disclosure")
+        return_clause = clause_lookup.get("return_or_destruction")
+        if obligations_clause and not return_clause:
+            text = obligations_clause.get("clause_text", "").lower()
+            if "return or destroy" not in text and "return" not in text and "destroy" not in text:
+                add_finding(
+                    "negotiation_point",
+                    "return_or_destruction",
+                    "low",
+                    "Return or destruction mechanics are not obvious",
+                    "The NDA does not clearly state whether confidential materials must be returned or destroyed on request or at the end of the relationship. Consider whether explicit disposition mechanics are needed.",
+                    source_clause=obligations_clause,
+                    confidence=0.66,
+                )
 
     return deduplicate_findings(findings)

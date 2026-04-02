@@ -52,7 +52,13 @@ def build_clause_records(chunks: list[dict]) -> list[dict]:
 
 def build_contract_profile(document_id: str, chunks: list[dict]) -> dict:
     full_text = "\n\n".join(chunk["content"] for chunk in chunks)
-    contract_type = classify_contract(full_text)
+    heading_text = "\n".join(
+        chunk["metadata"].get("section_heading", "")
+        for chunk in chunks
+        if chunk["metadata"].get("section_heading")
+    )
+    classifier_text = f"{heading_text}\n\n{full_text}".strip()
+    contract_type = classify_contract(classifier_text)
 
     clause_records = build_clause_records(chunks)
     clause_index = [
