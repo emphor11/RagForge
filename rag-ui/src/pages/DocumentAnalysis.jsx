@@ -19,6 +19,7 @@ const DocumentAnalysis = () => {
   const [queryResult, setQueryResult] = useState(null);
   const [queryLoading, setQueryLoading] = useState(false);
   const [showReasoning, setShowReasoning] = useState(false);
+  const [showSupplementalAnalysis, setShowSupplementalAnalysis] = useState(false);
   const [updatingFindingIndex, setUpdatingFindingIndex] = useState(null);
   const [findingFilter, setFindingFilter] = useState("all");
   const [reviewerNotes, setReviewerNotes] = useState({});
@@ -433,15 +434,53 @@ const DocumentAnalysis = () => {
         </div>
       )}
 
+      {isContractReview && (
+        <div
+          className="card"
+          style={{
+            marginBottom: '20px',
+            borderLeft: '4px solid var(--accent-primary)',
+          }}
+        >
+          <div className="card-header">
+            <div className="card-title">
+              <div className="card-title-icon icon-bg-purple">📚</div>
+              Supplemental AI Analysis
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowSupplementalAnalysis((current) => !current)}
+              style={{
+                background: 'transparent',
+                border: '1px solid var(--border-color)',
+                color: 'var(--text-primary)',
+                borderRadius: '999px',
+                padding: '6px 12px',
+                fontSize: '12px',
+                fontWeight: '600',
+                cursor: 'pointer'
+              }}
+            >
+              {showSupplementalAnalysis ? "Hide" : "Show"}
+            </button>
+          </div>
+          <div className="card-body" style={{ paddingTop: 0 }}>
+            <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '13px', lineHeight: 1.6 }}>
+              Legal review findings above are the primary workflow. The legacy AI summary, insights, and generic audit are kept here only as supporting context.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* ===== EVALUATION REPORT (GENERIC AI) ===== */}
-      {result.evaluation && (
+      {result.evaluation && (!isContractReview || showSupplementalAnalysis) && (
         <div className="card" style={{ marginBottom: '20px', borderLeft: `4px solid ${result.evaluation.status === 'pass' ? 'var(--success)' : 'var(--danger)'}` }}>
           <div className="card-header">
             <div className="card-title">
               <div className="card-title-icon" style={{ background: result.evaluation.status === 'pass' ? 'var(--success-bg)' : 'var(--danger-bg)', color: result.evaluation.status === 'pass' ? 'var(--success)' : 'var(--danger)' }}>
                 {result.evaluation.status === 'pass' ? '✅' : '⚠️'}
               </div>
-              AI Analysis Audit
+              {isContractReview ? "Supplemental AI Audit" : "AI Analysis Audit"}
             </div>
             <div className={`risk-badge ${result.evaluation.status === 'pass' ? 'low' : 'high'}`} style={{ textTransform: 'uppercase' }}>
               {result.evaluation.status === 'pass' ? 'Audit Passed' : 'Audit Failed'}
@@ -501,11 +540,12 @@ const DocumentAnalysis = () => {
       )}
 
       {/* ===== REASONING SECTION (COLLAPSIBLE) ===== */}
+      {(!isContractReview || showSupplementalAnalysis) && (
       <div className="card reasoning-card" style={{ marginBottom: '20px' }}>
         <div className="card-header" onClick={() => setShowReasoning(!showReasoning)} style={{ cursor: 'pointer', paddingBottom: showReasoning ? '16px' : '20px' }}>
           <div className="card-title">
             <div className="card-title-icon icon-bg-purple">🧠</div>
-            AI Reasoning Engine
+            {isContractReview ? "Supplemental AI Reasoning" : "AI Reasoning Engine"}
           </div>
           <span className="toggle-icon">{showReasoning ? '−' : '+'}</span>
         </div>
@@ -515,6 +555,7 @@ const DocumentAnalysis = () => {
           </div>
         )}
       </div>
+      )}
 
       {/* ===== CLAUSE INVENTORY ===== */}
       {contractClauses.length > 0 && (
@@ -850,12 +891,13 @@ const DocumentAnalysis = () => {
       )}
 
       {/* ===== RESULTS GRID ===== */}
+      {(!isContractReview || showSupplementalAnalysis) && (
       <div className="two-col-grid">
         <div className="card">
           <div className="card-header">
             <div className="card-title">
               <div className="card-title-icon icon-bg-blue">📋</div>
-              Executive Summary
+              {isContractReview ? "Supplemental Executive Summary" : "Executive Summary"}
             </div>
           </div>
           <div className="card-body">
@@ -867,7 +909,7 @@ const DocumentAnalysis = () => {
           <div className="card-header">
             <div className="card-title">
               <div className="card-title-icon icon-bg-green">💡</div>
-              Key Insights
+              {isContractReview ? "Supplemental Key Insights" : "Key Insights"}
             </div>
           </div>
           <div className="card-body">
@@ -890,13 +932,15 @@ const DocumentAnalysis = () => {
           </div>
         </div>
       </div>
+      )}
 
+      {(!isContractReview || showSupplementalAnalysis) && (
       <div className="two-col-grid">
         <div className="card">
           <div className="card-header">
             <div className="card-title">
               <div className="card-title-icon icon-bg-red">🛡️</div>
-              Risks Identified
+              {isContractReview ? "Supplemental Risks Identified" : "Risks Identified"}
             </div>
           </div>
           <div className="card-body">
@@ -927,7 +971,7 @@ const DocumentAnalysis = () => {
           <div className="card-header">
             <div className="card-title">
               <div className="card-title-icon icon-bg-purple">🚀</div>
-              Recommended Actions
+              {isContractReview ? "Supplemental Recommended Actions" : "Recommended Actions"}
             </div>
           </div>
           <div className="card-body">
@@ -951,6 +995,7 @@ const DocumentAnalysis = () => {
           </div>
         </div>
       </div>
+      )}
 
       {/* ===== Q&A SECTION ===== */}
       <div className="query-card full-width" style={{ marginTop: '20px' }}>
@@ -963,7 +1008,7 @@ const DocumentAnalysis = () => {
 
         <div className="query-card-header">
           <div className="query-card-icon">💬</div>
-          <h2 className="query-card-title">Strategic Q&A</h2>
+          <h2 className="query-card-title">{isContractReview ? "Contract Q&A" : "Strategic Q&A"}</h2>
         </div>
         <p className="query-card-subtitle">Answers are strictly grounded in <strong>{document_id}</strong> citations.</p>
         

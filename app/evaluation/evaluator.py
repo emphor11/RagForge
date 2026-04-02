@@ -423,24 +423,34 @@ class InsightEvaluator:
                 issues.append(
                     f"Legal review completeness is low: only {covered} of 5 high-value clause types detected."
                 )
-                completeness_score -= 25
+                completeness_score -= 40
+            elif covered < 4:
+                issues.append(
+                    f"Legal review completeness is moderate: only {covered} of 5 high-value clause types detected."
+                )
+                completeness_score -= 20
             if len(review_findings) == 0:
                 issues.append("No legal review findings were generated for a commercial contract.")
                 completeness_score -= 25
 
         final_score = (
-            max(0, grounding_score) * 0.35 +
-            max(0, severity_score) * 0.25 +
-            max(0, structure_score) * 0.20 +
-            max(0, completeness_score) * 0.20
+            max(0, grounding_score) * 0.30 +
+            max(0, severity_score) * 0.20 +
+            max(0, structure_score) * 0.15 +
+            max(0, completeness_score) * 0.35
         )
 
-        if final_score >= 85:
+        if final_score >= 88:
             status = "pass"
-        elif final_score >= 70:
+        elif final_score >= 72:
             status = "needs_review"
         else:
             status = "fail"
+
+        if doc_type in {"msa", "sow", "vendor_agreement"}:
+            covered = len(clause_types_present.intersection(self.high_value_legal_clauses))
+            if covered < 3 and status == "pass":
+                status = "needs_review"
 
         recommendation = "Legal review findings look well-supported."
         if status == "needs_review":

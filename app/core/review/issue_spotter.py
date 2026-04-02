@@ -9,6 +9,7 @@ HIGH_VALUE_CLAUSE_TYPES = {
     "governing_law",
 }
 SEVERITY_RANK = {"high": 3, "medium": 2, "low": 1}
+COMMERCIAL_DOC_TYPES = {"msa", "sow", "vendor_agreement", "employment_agreement", "lease"}
 
 
 def build_clause_lookup(clauses: list[dict]) -> dict[str, dict]:
@@ -18,6 +19,14 @@ def build_clause_lookup(clauses: list[dict]) -> dict[str, dict]:
         if clause_type and clause_type not in lookup:
             lookup[clause_type] = clause
     return lookup
+
+
+def find_clause_by_heading(clauses: list[dict], pattern: str) -> dict | None:
+    for clause in clauses:
+        title = clause.get("title", "")
+        if title and re.search(pattern, title, re.IGNORECASE):
+            return clause
+    return None
 
 
 def quote_preview(text: str, limit: int = 180) -> str:
@@ -89,9 +98,41 @@ def deduplicate_findings(findings: list[dict]) -> list[dict]:
     )
 
 
+def compute_confidence(
+    contract_profile: dict,
+    finding_type: str,
+    severity: str,
+    source_clause: dict | None = None,
+) -> float:
+    doc_conf = float(contract_profile.get("classification_confidence") or 0.75)
+    severity_bonus = {"high": 0.08, "medium": 0.05, "low": 0.02}.get(severity, 0.0)
+    source_bonus = 0.0
+
+    if source_clause:
+        clause_text = source_clause.get("clause_text", "")
+        title = (source_clause.get("title") or "").strip()
+        source_bonus += 0.12
+        if len(clause_text.split()) >= 12:
+            source_bonus += 0.05
+        if title:
+            source_bonus += 0.03
+    elif finding_type == "missing_protection":
+        source_bonus -= 0.03
+
+    type_base = {
+        "missing_protection": 0.56,
+        "risk": 0.6,
+        "negotiation_point": 0.58,
+    }.get(finding_type, 0.55)
+
+    confidence = type_base + (doc_conf * 0.18) + severity_bonus + source_bonus
+    return round(max(0.55, min(confidence, 0.93)), 2)
+
+
 def spot_clause_issues(contract_profile: dict, clauses: list[dict]) -> list[dict]:
     document_type = contract_profile.get("document_type", "")
     clause_lookup = build_clause_lookup(clauses)
+    termination_candidate = clause_lookup.get("termination") or find_clause_by_heading(clauses, r"\btermination\b")
     findings = []
 
     def add_finding(
@@ -101,7 +142,7 @@ def spot_clause_issues(contract_profile: dict, clauses: list[dict]) -> list[dict
         title: str,
         explanation: str,
         source_clause: dict | None = None,
-        confidence: float = 0.8,
+        confidence: float | None = None,
     ):
         source_quotes = []
         clause_refs = []
@@ -117,7 +158,12 @@ def spot_clause_issues(contract_profile: dict, clauses: list[dict]) -> list[dict
             "explanation": explanation,
             "clause_refs": clause_refs,
             "source_quotes": source_quotes,
-            "confidence": confidence,
+            "confidence": confidence if confidence is not None else compute_confidence(
+                contract_profile=contract_profile,
+                finding_type=finding_type,
+                severity=severity,
+                source_clause=source_clause,
+            ),
             "status": "open",
             "reviewer_note": "",
         })
@@ -129,17 +175,15 @@ def spot_clause_issues(contract_profile: dict, clauses: list[dict]) -> list[dict
             "high",
             "Payment terms are not clearly identified",
             "The contract profile did not detect a payment clause. Commercial agreements should define fees, timing, and payment mechanics.",
-            confidence=0.78,
         )
 
-    if "termination" not in clause_lookup and document_type in {"msa", "sow", "vendor_agreement", "employment_agreement", "lease"}:
+    if not termination_candidate and document_type in COMMERCIAL_DOC_TYPES:
         add_finding(
             "missing_protection",
             "termination",
             "high",
             "Termination rights are not clearly identified",
             "The clause inventory did not detect a termination clause. This can leave exit mechanics and notice requirements undefined.",
-            confidence=0.84,
         )
 
     if "liability_cap" not in clause_lookup and document_type in {"msa", "sow", "vendor_agreement"}:
@@ -149,7 +193,6 @@ def spot_clause_issues(contract_profile: dict, clauses: list[dict]) -> list[dict
             "high",
             "No limitation of liability clause detected",
             "The agreement does not appear to include a liability cap. That can leave exposure uncapped for commercial claims.",
-            confidence=0.9,
         )
 
     if "indemnity" not in clause_lookup and document_type in {"msa", "sow", "vendor_agreement"}:
@@ -159,10 +202,9 @@ def spot_clause_issues(contract_profile: dict, clauses: list[dict]) -> list[dict
             "medium",
             "No indemnity clause detected",
             "The clause inventory did not detect an indemnity provision. Review whether third-party risk allocation is intentionally omitted.",
-            confidence=0.82,
         )
 
-    termination_clause = clause_lookup.get("termination")
+    termination_clause = termination_candidate
     if termination_clause:
         text = termination_clause.get("clause_text", "").lower()
         notice_days = extract_notice_days(text)
@@ -179,7 +221,6 @@ def spot_clause_issues(contract_profile: dict, clauses: list[dict]) -> list[dict
                 "No express termination-for-convenience language detected",
                 "The termination clause does not appear to provide an explicit termination-for-convenience right. Review whether the parties intended a discretionary exit right.",
                 source_clause=termination_clause,
-                confidence=0.76,
             )
         if "notice" not in text:
             add_finding(
@@ -189,7 +230,6 @@ def spot_clause_issues(contract_profile: dict, clauses: list[dict]) -> list[dict
                 "Termination notice mechanics should be reviewed",
                 "The termination clause does not clearly reference notice timing. Add notice periods if the contract should support orderly exit.",
                 source_clause=termination_clause,
-                confidence=0.74,
             )
         elif notice_days is not None and notice_days < 30:
             add_finding(
@@ -199,7 +239,6 @@ def spot_clause_issues(contract_profile: dict, clauses: list[dict]) -> list[dict
                 "Termination notice period may be short",
                 f"The termination clause appears to use a {notice_days}-day notice period. Confirm whether that is long enough for transition and wind-down obligations.",
                 source_clause=termination_clause,
-                confidence=0.8,
             )
         if "cause" not in text and "breach" not in text:
             add_finding(
@@ -209,7 +248,6 @@ def spot_clause_issues(contract_profile: dict, clauses: list[dict]) -> list[dict
                 "Termination-for-cause trigger is not obvious",
                 "The termination clause does not clearly mention breach or cause-based exit language. Review whether default scenarios are adequately addressed.",
                 source_clause=termination_clause,
-                confidence=0.75,
             )
 
     liability_clause = clause_lookup.get("liability_cap")
@@ -223,7 +261,6 @@ def spot_clause_issues(contract_profile: dict, clauses: list[dict]) -> list[dict
                 "Liability appears uncapped",
                 "The liability clause uses language suggesting uncapped exposure. Confirm whether this was intentional and commercially acceptable.",
                 source_clause=liability_clause,
-                confidence=0.91,
             )
         elif "fees paid" not in text and "amounts paid" not in text and "twelve months" not in text:
             add_finding(
@@ -233,7 +270,6 @@ def spot_clause_issues(contract_profile: dict, clauses: list[dict]) -> list[dict
                 "Liability cap formula is not obvious",
                 "The liability clause does not clearly tie the cap to fees paid, contract value, or a stated monetary ceiling. Review whether the cap formula is sufficiently explicit.",
                 source_clause=liability_clause,
-                confidence=0.79,
             )
         if "consequential" not in text and "indirect" not in text:
             add_finding(
@@ -243,7 +279,6 @@ def spot_clause_issues(contract_profile: dict, clauses: list[dict]) -> list[dict
                 "Excluded damages language may be missing",
                 "The liability clause does not clearly reference consequential or indirect damages. Confirm whether damages exclusions should be stated separately.",
                 source_clause=liability_clause,
-                confidence=0.71,
             )
 
     indemnity_clause = clause_lookup.get("indemnity")
@@ -257,7 +292,6 @@ def spot_clause_issues(contract_profile: dict, clauses: list[dict]) -> list[dict
                 "Indemnity appears broad without an express limit",
                 "The indemnity clause appears broad and does not obviously include a cap or narrowing qualifier. Review the risk allocation carefully.",
                 source_clause=indemnity_clause,
-                confidence=0.88,
             )
         if "third party" not in text:
             add_finding(
@@ -267,7 +301,6 @@ def spot_clause_issues(contract_profile: dict, clauses: list[dict]) -> list[dict
                 "Indemnity trigger scope is not clearly limited to third-party claims",
                 "The indemnity clause does not clearly refer to third-party claims. Review whether the indemnity could be read more broadly than intended.",
                 source_clause=indemnity_clause,
-                confidence=0.8,
             )
         if "defend" not in text and "control of defense" not in text:
             add_finding(
@@ -277,7 +310,6 @@ def spot_clause_issues(contract_profile: dict, clauses: list[dict]) -> list[dict
                 "Defense control mechanics are not obvious",
                 "The indemnity clause does not clearly address who controls the defense of claims. Consider whether defense mechanics should be spelled out.",
                 source_clause=indemnity_clause,
-                confidence=0.72,
             )
 
     payment_clause = clause_lookup.get("payment")
@@ -295,7 +327,6 @@ def spot_clause_issues(contract_profile: dict, clauses: list[dict]) -> list[dict
                 "Payment timing may be aggressive",
                 "The payment clause appears to require payment upon receipt. Consider whether the review standard expects a longer payment window.",
                 source_clause=payment_clause,
-                confidence=0.77,
             )
         if not has_payment_window:
             add_finding(
@@ -305,7 +336,6 @@ def spot_clause_issues(contract_profile: dict, clauses: list[dict]) -> list[dict
                 "Payment timing is not clearly defined",
                 "The payment clause does not clearly state a due date or payment window. Review whether invoice timing and payment deadlines are explicit enough.",
                 source_clause=payment_clause,
-                confidence=0.81,
             )
         if "late fee" not in text and "interest" not in text:
             add_finding(
@@ -315,7 +345,6 @@ def spot_clause_issues(contract_profile: dict, clauses: list[dict]) -> list[dict
                 "Late payment remedy is not obvious",
                 "The payment clause does not clearly reference late-payment interest or similar remedies. Consider whether overdue payment protection is needed.",
                 source_clause=payment_clause,
-                confidence=0.69,
             )
 
     governing_law_clause = clause_lookup.get("governing_law")
@@ -325,6 +354,7 @@ def spot_clause_issues(contract_profile: dict, clauses: list[dict]) -> list[dict
             "exclusive jurisdiction" not in text
             and "courts of" not in text
             and "courts in" not in text
+            and "jurisdiction in" not in text
             and "jurisdiction of courts in" not in text
             and "seat" not in text
             and "venue" not in text
@@ -337,7 +367,6 @@ def spot_clause_issues(contract_profile: dict, clauses: list[dict]) -> list[dict
                 "Dispute resolution forum mechanics could be more specific",
                 "The clause references arbitration but does not clearly identify seat, venue, or other forum-selection language. Confirm whether dispute mechanics are sufficiently defined.",
                 source_clause=governing_law_clause,
-                confidence=0.7,
             )
         elif needs_forum_specificity:
             add_finding(
@@ -347,7 +376,6 @@ def spot_clause_issues(contract_profile: dict, clauses: list[dict]) -> list[dict
                 "Forum selection language is not obvious",
                 "The dispute clause does not clearly specify exclusive jurisdiction, court forum, or arbitral seat language. Review whether forum selection should be clearer.",
                 source_clause=governing_law_clause,
-                confidence=0.71,
             )
 
     if document_type == "nda":
@@ -359,7 +387,6 @@ def spot_clause_issues(contract_profile: dict, clauses: list[dict]) -> list[dict
                 "low",
                 "No express injunctive-relief or remedies clause detected",
                 "The NDA does not appear to include a dedicated remedies clause. Review whether the disclosing party reserves injunctive relief or other express remedies for unauthorized disclosure.",
-                confidence=0.68,
             )
 
         obligations_clause = clause_lookup.get("permitted_use_and_non_disclosure")
@@ -374,7 +401,6 @@ def spot_clause_issues(contract_profile: dict, clauses: list[dict]) -> list[dict
                     "Return or destruction mechanics are not obvious",
                     "The NDA does not clearly state whether confidential materials must be returned or destroyed on request or at the end of the relationship. Consider whether explicit disposition mechanics are needed.",
                     source_clause=obligations_clause,
-                    confidence=0.66,
                 )
 
     return deduplicate_findings(findings)
