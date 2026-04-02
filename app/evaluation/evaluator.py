@@ -5,8 +5,8 @@ import re
 
 class InsightEvaluator:
     def __init__(self):
-        # Load once at startup — reused for all evaluations
-        self.embedder = SentenceTransformer("all-MiniLM-L6-v2")
+        self.embedder = None
+        self.embedder_model_name = "all-MiniLM-L6-v2"
 
         self.generic_phrases = [
             "the document discusses", "review the pdf", "for more information",
@@ -135,7 +135,7 @@ class InsightEvaluator:
             semantic_meta.append((field, claim_kind, claim, weight))
 
         if semantic_pairs:
-            embeddings = self.embedder.encode(semantic_pairs, convert_to_tensor=True)
+            embeddings = self._get_embedder().encode(semantic_pairs, convert_to_tensor=True)
             for idx, (field, claim_kind, claim, weight) in enumerate(semantic_meta):
                 claim_embedding = embeddings[idx * 2]
                 window_embedding = embeddings[idx * 2 + 1]
@@ -152,6 +152,11 @@ class InsightEvaluator:
 
         score = (passed_weight / total_weight * 100) if total_weight > 0 else 0
         return round(score), issues
+
+    def _get_embedder(self):
+        if self.embedder is None:
+            self.embedder = SentenceTransformer(self.embedder_model_name)
+        return self.embedder
 
     def _normalize_text(self, text: str) -> str:
         return re.sub(r"\s+", " ", text.lower()).strip()

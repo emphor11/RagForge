@@ -91,6 +91,46 @@ def get_insights(document_id: str):
     return data
 
 
+@app.get("/contracts/{document_id}/overview")
+def get_contract_overview(document_id: str):
+    store = InsightStore()
+    data = store.load(document_id)
+
+    if not data:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    contract_profile = data.get("contract_profile")
+    if not contract_profile:
+        raise HTTPException(
+            status_code=404,
+            detail="Contract profile not available for this document yet."
+        )
+
+    return contract_profile
+
+
+@app.get("/contracts/{document_id}/clauses")
+def get_contract_clauses(document_id: str):
+    store = InsightStore()
+    data = store.load(document_id)
+
+    if not data:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    contract_profile = data.get("contract_profile")
+    if not contract_profile:
+        raise HTTPException(
+            status_code=404,
+            detail="Contract profile not available for this document yet."
+        )
+
+    return {
+        "document_id": document_id,
+        "clauses": contract_profile.get("clause_index", []),
+        "count": len(contract_profile.get("clause_index", [])),
+    }
+
+
 @app.get("/reports")
 def get_reports():
     store = InsightStore()

@@ -1,11 +1,15 @@
 import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 
+const API_BASE_URL = "http://127.0.0.1:8000";
+
 const DocumentAnalysis = () => {
   const { id } = useParams();
   const document_id = decodeURIComponent(id);
 
   const [result, setResult] = useState(null);
+  const [contractProfile, setContractProfile] = useState(null);
+  const [contractClauses, setContractClauses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -66,12 +70,40 @@ const DocumentAnalysis = () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`http://127.0.0.1:8000/insights/${encodeURIComponent(document_id)}`);
-      if (!res.ok) throw new Error("Document analysis not found");
-      const data = await res.json();
+      const [insightsRes, overviewRes, clausesRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/insights/${encodeURIComponent(document_id)}`),
+        fetch(`${API_BASE_URL}/contracts/${encodeURIComponent(document_id)}/overview`),
+        fetch(`${API_BASE_URL}/contracts/${encodeURIComponent(document_id)}/clauses`)
+      ]);
+
+      if (!insightsRes.ok) throw new Error("Document analysis not found");
+
+      const data = await insightsRes.json();
+      if (!data || data.error) throw new Error("Document analysis not found");
+
+      if (overviewRes.ok) {
+        const overviewData = await overviewRes.json();
+        setContractProfile(overviewData);
+      } else if (overviewRes.status === 404) {
+        setContractProfile(null);
+      } else {
+        throw new Error("Failed to load contract overview");
+      }
+
+      if (clausesRes.ok) {
+        const clausesData = await clausesRes.json();
+        setContractClauses(clausesData.clauses || []);
+      } else if (clausesRes.status === 404) {
+        setContractClauses([]);
+      } else {
+        throw new Error("Failed to load contract clauses");
+      }
+
       setResult(normalizeResult(data));
     } catch (err) {
       console.error("Failed to load insights", err);
+      setContractProfile(null);
+      setContractClauses([]);
       setError("Failed to load document insights. Please make sure the file exists.");
     } finally {
       setLoading(false);
@@ -83,7 +115,7 @@ const DocumentAnalysis = () => {
 
     setQueryLoading(true);
     try {
-      const res = await fetch("http://127.0.0.1:8000/query", {
+      const res = await fetch(`${API_BASE_URL}/query`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -119,6 +151,22 @@ const DocumentAnalysis = () => {
     if (val < 0.7) color = "var(--warning)";
     if (val < 0.4) color = "var(--danger)";
     return <span style={{ color, fontSize: '11px', fontWeight: '600' }}>{pct}% Match</span>;
+  };
+
+  const formatDocumentType = (value) => {
+    if (!value) return "Unknown";
+    return value
+      .split("_")
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
+  };
+
+  const formatClauseType = (value) => {
+    if (!value) return "Unclassified";
+    return value
+      .split("_")
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
   };
 
   if (loading) {
@@ -262,6 +310,120 @@ const DocumentAnalysis = () => {
           </div>
         )}
       </div>
+
+      {/* ===== CONTRACT OVERVIEW ===== */}
+      {contractProfile && (
+        <div className="card" style={{ marginBottom: '20px' }}>
+          <div className="card-header">
+            <div className="card-title">
+              <div className="card-title-icon icon-bg-blue">⚖️</div>
+              Contract Overview
+            </div>
+          </div>
+          <div className="card-body">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '16px' }}>
+              <div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Document Type</div>
+                <div style={{ fontWeight: '600' }}>{formatDocumentType(contractProfile.document_type)}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Classification Confidence</div>
+                <div style={{ fontWeight: '600' }}>{((contractProfile.classification_confidence || 0) * 100).toFixed(0)}%</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Effective Date</div>
+                <div style={{ fontWeight: '600' }}>{contractProfile.effective_date || "Not detected"}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Governing Law</div>
+                <div style={{ fontWeight: '600' }}>{contractProfile.governing_law || "Not detected"}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Term Length</div>
+                <div style={{ fontWeight: '600' }}>{contractProfile.term_length || "Not detected"}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Renewal Mechanics</div>
+                <div style={{ fontWeight: '600' }}>{contractProfile.renewal_mechanics || "Not detected"}</div>
+              </div>
+            </div>
+
+            <div style={{ marginTop: '18px' }}>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '8px' }}>Parties</div>
+              {contractProfile.parties?.length ? (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                  {contractProfile.parties.map((party, idx) => (
+                    <span
+                      key={`${party}-${idx}`}
+                      style={{
+                        padding: '8px 12px',
+                        borderRadius: '999px',
+                        background: 'rgba(37, 99, 235, 0.12)',
+                        border: '1px solid rgba(37, 99, 235, 0.2)',
+                        color: 'var(--text-primary)',
+                        fontSize: '13px',
+                        fontWeight: '500'
+                      }}
+                    >
+                      {party}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ fontWeight: '600' }}>Not detected</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== CLAUSE INVENTORY ===== */}
+      {contractClauses.length > 0 && (
+        <div className="card" style={{ marginBottom: '20px' }}>
+          <div className="card-header">
+            <div className="card-title">
+              <div className="card-title-icon icon-bg-green">🧾</div>
+              Clause Inventory
+            </div>
+          </div>
+          <div className="card-body">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '12px' }}>
+              {contractClauses.map((clause) => (
+                <div
+                  key={`${clause.chunk_id}-${clause.title}`}
+                  style={{
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '12px',
+                    padding: '14px',
+                    background: 'rgba(255,255,255,0.02)'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'start', justifyContent: 'space-between', gap: '10px', marginBottom: '8px' }}>
+                    <strong style={{ lineHeight: 1.4 }}>{clause.title}</strong>
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: '600',
+                        padding: '4px 8px',
+                        borderRadius: '999px',
+                        background: 'rgba(16, 185, 129, 0.12)',
+                        border: '1px solid rgba(16, 185, 129, 0.2)',
+                        color: 'var(--text-primary)',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      {formatClauseType(clause.type)}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                    Page {clause.page_number} · Chunk {clause.chunk_id}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ===== RESULTS GRID ===== */}
       <div className="two-col-grid">
