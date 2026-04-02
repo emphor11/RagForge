@@ -25,6 +25,19 @@ class InsightEvaluator:
             r'%|ratio|rate|score|accuracy|loss',
             r'\$|revenue|cost|margin|profit',
         ]
+        self.legal_advice_patterns = [
+            r"\byou should\b",
+            r"\bmust\b",
+            r"\bguarantees?\b",
+            r"\bwill definitely\b",
+        ]
+        self.high_value_legal_clauses = {
+            "termination",
+            "liability_cap",
+            "indemnity",
+            "payment",
+            "governing_law",
+        }
 
     # -------------------------------------------------------------------------
     # 1. STRUCTURE CHECK — are all required fields present and well-formed?
@@ -326,6 +339,127 @@ class InsightEvaluator:
                 "coverage":   coverage_score,
             },
             "recommendation": self._recommend(final_score, all_issues)
+        }
+
+    def evaluate_legal_review(
+        self,
+        review_findings: List[Dict[str, Any]],
+        clauses: List[Dict[str, Any]],
+        contract_profile: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        issues = []
+        clause_text = "\n\n".join(clause.get("clause_text", "") for clause in clauses)
+        clause_text_lower = clause_text.lower()
+
+        structure_score = 100
+        grounding_score = 100
+        severity_score = 100
+        completeness_score = 100
+
+        clause_types_present = {clause.get("type", "") for clause in clauses if clause.get("type")}
+        doc_type = contract_profile.get("document_type", "")
+
+        required_fields = {
+            "finding_type", "clause_type", "severity", "title",
+            "explanation", "clause_refs", "source_quotes", "confidence", "status"
+        }
+
+        for idx, finding in enumerate(review_findings):
+            missing = required_fields - set(finding.keys())
+            if missing:
+                issues.append(f"review_findings[{idx}] missing fields: {', '.join(sorted(missing))}")
+                structure_score -= 10
+
+            explanation = str(finding.get("explanation", ""))
+            severity = str(finding.get("severity", "")).lower()
+            finding_type = str(finding.get("finding_type", ""))
+            clause_type = str(finding.get("clause_type", ""))
+            source_quotes = finding.get("source_quotes", []) or []
+            clause_refs = finding.get("clause_refs", []) or []
+
+            for pattern in self.legal_advice_patterns:
+                if re.search(pattern, explanation, re.IGNORECASE):
+                    issues.append(
+                        f"review_findings[{idx}] uses over-assertive legal advice language: '{finding.get('title', '')[:50]}...'"
+                    )
+                    structure_score -= 8
+                    break
+
+            if finding_type in {"risk", "negotiation_point"}:
+                if not source_quotes:
+                    issues.append(
+                        f"review_findings[{idx}] lacks source quote support for {finding_type}: '{finding.get('title', '')[:50]}...'"
+                    )
+                    grounding_score -= 12
+                else:
+                    for quote in source_quotes:
+                        if quote and self._normalize_text(quote) not in self._normalize_text(clause_text):
+                            issues.append(
+                                f"review_findings[{idx}] source quote not found in contract text: '{quote[:60]}...'"
+                            )
+                            grounding_score -= 10
+
+            if severity == "high":
+                if finding_type == "missing_protection":
+                    if clause_type not in self.high_value_legal_clauses:
+                        issues.append(
+                            f"review_findings[{idx}] high severity missing protection is not tied to a core clause type: '{finding.get('title', '')[:50]}...'"
+                        )
+                        severity_score -= 10
+                elif not source_quotes or not clause_refs:
+                    issues.append(
+                        f"review_findings[{idx}] high severity finding needs stronger evidence linkage: '{finding.get('title', '')[:50]}...'"
+                    )
+                    severity_score -= 14
+
+            confidence = finding.get("confidence")
+            if confidence is None or not isinstance(confidence, (int, float)) or not (0.0 <= confidence <= 1.0):
+                issues.append(f"review_findings[{idx}] has invalid confidence value: {confidence}")
+                structure_score -= 5
+
+        if doc_type in {"msa", "sow", "vendor_agreement"}:
+            covered = len(clause_types_present.intersection(self.high_value_legal_clauses))
+            if covered < 3:
+                issues.append(
+                    f"Legal review completeness is low: only {covered} of 5 high-value clause types detected."
+                )
+                completeness_score -= 25
+            if len(review_findings) == 0:
+                issues.append("No legal review findings were generated for a commercial contract.")
+                completeness_score -= 25
+
+        final_score = (
+            max(0, grounding_score) * 0.35 +
+            max(0, severity_score) * 0.25 +
+            max(0, structure_score) * 0.20 +
+            max(0, completeness_score) * 0.20
+        )
+
+        if final_score >= 85:
+            status = "pass"
+        elif final_score >= 70:
+            status = "needs_review"
+        else:
+            status = "fail"
+
+        recommendation = "Legal review findings look well-supported."
+        if status == "needs_review":
+            recommendation = "Legal review findings are usable, but a reviewer should inspect flagged issues and missing coverage."
+        elif status == "fail":
+            recommendation = "Legal review findings are not reliable enough yet. Improve clause coverage or evidence support before delivery."
+
+        return {
+            "score": round(final_score),
+            "status": status,
+            "issues": issues,
+            "issue_count": len(issues),
+            "metrics": {
+                "grounding": max(0, grounding_score),
+                "severity_calibration": max(0, severity_score),
+                "structure": max(0, structure_score),
+                "completeness": max(0, completeness_score),
+            },
+            "recommendation": recommendation,
         }
 
     def _recommend(self, score: float, issues: List[str]) -> str:

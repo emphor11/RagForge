@@ -10,6 +10,8 @@ const DocumentAnalysis = () => {
   const [result, setResult] = useState(null);
   const [contractProfile, setContractProfile] = useState(null);
   const [contractClauses, setContractClauses] = useState([]);
+  const [contractFindings, setContractFindings] = useState([]);
+  const [contractReviewAudit, setContractReviewAudit] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -70,10 +72,12 @@ const DocumentAnalysis = () => {
     setLoading(true);
     setError(null);
     try {
-      const [insightsRes, overviewRes, clausesRes] = await Promise.all([
+      const [insightsRes, overviewRes, clausesRes, risksRes, auditRes] = await Promise.all([
         fetch(`${API_BASE_URL}/insights/${encodeURIComponent(document_id)}`),
         fetch(`${API_BASE_URL}/contracts/${encodeURIComponent(document_id)}/overview`),
-        fetch(`${API_BASE_URL}/contracts/${encodeURIComponent(document_id)}/clauses`)
+        fetch(`${API_BASE_URL}/contracts/${encodeURIComponent(document_id)}/clauses`),
+        fetch(`${API_BASE_URL}/contracts/${encodeURIComponent(document_id)}/risks`),
+        fetch(`${API_BASE_URL}/contracts/${encodeURIComponent(document_id)}/review-audit`)
       ]);
 
       if (!insightsRes.ok) throw new Error("Document analysis not found");
@@ -99,11 +103,31 @@ const DocumentAnalysis = () => {
         throw new Error("Failed to load contract clauses");
       }
 
+      if (risksRes.ok) {
+        const risksData = await risksRes.json();
+        setContractFindings(risksData.findings || []);
+      } else if (risksRes.status === 404) {
+        setContractFindings([]);
+      } else {
+        throw new Error("Failed to load contract findings");
+      }
+
+      if (auditRes.ok) {
+        const auditData = await auditRes.json();
+        setContractReviewAudit(auditData);
+      } else if (auditRes.status === 404) {
+        setContractReviewAudit(null);
+      } else {
+        throw new Error("Failed to load contract review audit");
+      }
+
       setResult(normalizeResult(data));
     } catch (err) {
       console.error("Failed to load insights", err);
       setContractProfile(null);
       setContractClauses([]);
+      setContractFindings([]);
+      setContractReviewAudit(null);
       setError("Failed to load document insights. Please make sure the file exists.");
     } finally {
       setLoading(false);
@@ -168,6 +192,18 @@ const DocumentAnalysis = () => {
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
       .join(" ");
   };
+
+  const formatFindingType = (value) => {
+    if (!value) return "Finding";
+    return value
+      .split("_")
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
+  };
+
+  const queryPlaceholder = contractProfile
+    ? "e.g., What is the governing law? Is there a termination right? What does the confidentiality clause allow?"
+    : "e.g., Extract the step-by-step implementation plan from section 4.";
 
   if (loading) {
     return (
@@ -431,6 +467,167 @@ const DocumentAnalysis = () => {
         </div>
       )}
 
+      {contractFindings.length > 0 && (
+        <div className="card" style={{ marginBottom: '20px' }}>
+          <div className="card-header">
+            <div className="card-title">
+              <div className="card-title-icon icon-bg-red">⚠️</div>
+              Contract Review Findings
+            </div>
+          </div>
+          <div className="card-body">
+            <ul className="risk-list">
+              {contractFindings.map((finding, idx) => (
+                <li key={`${finding.title}-${idx}`} className="risk-item-complex">
+                  <div className="risk-header">
+                    <div className="risk-title-row">
+                      <span className={`risk-dot ${finding.severity?.toLowerCase()}`}></span>
+                      <strong>{finding.title}</strong>
+                    </div>
+                    <span className={`risk-badge ${finding.severity?.toLowerCase()}`}>
+                      {getSeverityLabel(finding.severity)}
+                    </span>
+                  </div>
+                  <p className="risk-reason">{finding.explanation}</p>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: '600',
+                        padding: '4px 8px',
+                        borderRadius: '999px',
+                        background: 'rgba(239, 68, 68, 0.12)',
+                        border: '1px solid rgba(239, 68, 68, 0.2)',
+                        color: 'var(--text-primary)'
+                      }}
+                    >
+                      {formatFindingType(finding.finding_type)}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: '600',
+                        padding: '4px 8px',
+                        borderRadius: '999px',
+                        background: 'rgba(59, 130, 246, 0.12)',
+                        border: '1px solid rgba(59, 130, 246, 0.2)',
+                        color: 'var(--text-primary)'
+                      }}
+                    >
+                      {formatClauseType(finding.clause_type)}
+                    </span>
+                    {finding.status && (
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          fontWeight: '600',
+                          padding: '4px 8px',
+                          borderRadius: '999px',
+                          background: 'rgba(16, 185, 129, 0.12)',
+                          border: '1px solid rgba(16, 185, 129, 0.2)',
+                          color: 'var(--text-primary)'
+                        }}
+                      >
+                        {formatDocumentType(finding.status)}
+                      </span>
+                    )}
+                  </div>
+                  {finding.source_quotes?.map((quote, quoteIdx) => (
+                    <blockquote key={quoteIdx} className="source-quote">"{quote}"</blockquote>
+                  ))}
+                  <div style={{ textAlign: 'right', marginTop: '4px' }}>
+                    {renderConfidence(finding.confidence)}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {contractReviewAudit && (
+        <div
+          className="card"
+          style={{
+            marginBottom: '20px',
+            borderLeft: `4px solid ${
+              contractReviewAudit.status === 'pass'
+                ? 'var(--success)'
+                : contractReviewAudit.status === 'needs_review'
+                  ? 'var(--warning)'
+                  : 'var(--danger)'
+            }`
+          }}
+        >
+          <div className="card-header">
+            <div className="card-title">
+              <div className="card-title-icon icon-bg-orange">🏛️</div>
+              Contract Review Audit
+            </div>
+            <div
+              className={`risk-badge ${
+                contractReviewAudit.status === 'pass'
+                  ? 'low'
+                  : contractReviewAudit.status === 'needs_review'
+                    ? 'medium'
+                    : 'high'
+              }`}
+              style={{ textTransform: 'uppercase' }}
+            >
+              {formatDocumentType(contractReviewAudit.status)}
+            </div>
+          </div>
+          <div className="card-body">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '15px', marginBottom: '20px' }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '18px', fontWeight: '700' }}>{contractReviewAudit.metrics?.grounding ?? 0}%</div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Grounding</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '18px', fontWeight: '700' }}>{contractReviewAudit.metrics?.severity_calibration ?? 0}%</div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Severity</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '18px', fontWeight: '700' }}>{contractReviewAudit.metrics?.structure ?? 0}%</div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Structure</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '18px', fontWeight: '700' }}>{contractReviewAudit.metrics?.completeness ?? 0}%</div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Completeness</div>
+              </div>
+            </div>
+
+            {contractReviewAudit.recommendation && (
+              <div style={{
+                padding: '12px',
+                borderRadius: '8px',
+                marginBottom: '16px',
+                background: 'rgba(255,255,255,0.03)',
+                border: '1px solid var(--border-color)',
+                color: 'var(--text-primary)',
+                fontSize: '14px',
+                fontWeight: '500'
+              }}>
+                {contractReviewAudit.recommendation}
+              </div>
+            )}
+
+            {contractReviewAudit.issues?.length > 0 && (
+              <div style={{ padding: '12px', background: 'rgba(0,0,0,0.03)', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+                <strong style={{ fontSize: '13px', color: 'var(--text-primary)', display: 'block', marginBottom: '8px' }}>
+                  Audit Log ({contractReviewAudit.issue_count} items):
+                </strong>
+                <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                  {contractReviewAudit.issues.map((issue, idx) => (
+                    <li key={idx} style={{ marginBottom: '4px' }}>{issue}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ===== RESULTS GRID ===== */}
       <div className="two-col-grid">
         <div className="card">
@@ -559,7 +756,7 @@ const DocumentAnalysis = () => {
           <input
             type="text"
             className="query-input"
-            placeholder="e.g., Extract the step-by-step implementation plan from section 4."
+            placeholder={queryPlaceholder}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleQuery()}

@@ -1,5 +1,6 @@
 from app.core.pipelines.embedding_pipeline import store_chunks
 from app.core.contracts.profile_builder import build_clause_records, build_contract_profile
+from app.core.review.review_pipeline import build_review_findings
 
 class AutoInsightPipeline:
     def __init__(self, ingestion_pipeline, generator, insight_store, evaluator=None):
@@ -15,6 +16,7 @@ class AutoInsightPipeline:
         # Step 1.5: Build contract profile + normalize clause metadata
         contract_profile = build_contract_profile(document_id, chunks)
         clause_records = build_clause_records(chunks)
+        review_findings = build_review_findings(contract_profile, clause_records)
 
         # Step 2: Store chunks in vector DB (added for RAG)
         store_chunks(chunks)
@@ -35,15 +37,23 @@ class AutoInsightPipeline:
 
         # Step 6: Evaluate Insights (New Evaluation Layer)
         evaluation = {}
+        review_audit = {}
         if self.evaluator:
             evaluation = self.evaluator.run(insights, context)
+            review_audit = self.evaluator.evaluate_legal_review(
+                review_findings=review_findings,
+                clauses=clause_records,
+                contract_profile=contract_profile,
+            )
 
         # Step 7: Combined Data Object (Safe Storage)
         combined_result = {
             "contract_profile": contract_profile,
             "clauses": clause_records,
+            "review_findings": review_findings,
             "insights": insights,
-            "evaluation": evaluation
+            "evaluation": evaluation,
+            "review_audit": review_audit,
         }
 
         # Step 8: Save result to persistent store

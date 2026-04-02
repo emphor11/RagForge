@@ -14,6 +14,7 @@ from app.core.retrieval.bm25_retriever import BM25Retriever
 from app.core.retrieval.hybrid_retriever import HybridRetriever
 from app.core.reranking.reranker import Reranker
 from app.db.chroma_store import ChromaStore
+from app.core.review.legal_query import select_contract_query_docs
 
 app = FastAPI()
 
@@ -133,6 +134,41 @@ def get_contract_clauses(document_id: str):
         "clauses": clauses,
         "count": len(clauses),
     }
+
+
+@app.get("/contracts/{document_id}/risks")
+def get_contract_risks(document_id: str):
+    store = InsightStore()
+    data = store.load(document_id)
+
+    if not data:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    review_findings = data.get("review_findings", [])
+
+    return {
+        "document_id": document_id,
+        "findings": review_findings,
+        "count": len(review_findings),
+    }
+
+
+@app.get("/contracts/{document_id}/review-audit")
+def get_contract_review_audit(document_id: str):
+    store = InsightStore()
+    data = store.load(document_id)
+
+    if not data:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    review_audit = data.get("review_audit")
+    if not review_audit:
+        raise HTTPException(
+            status_code=404,
+            detail="Contract review audit is not available for this document yet."
+        )
+
+    return review_audit
 
 
 @app.get("/reports")
@@ -255,6 +291,12 @@ class QueryRequest(BaseModel):
 def query_api(request: QueryRequest):
     query = request.query
     document_id = request.document_id
+    insight_store = InsightStore()
+    stored_contract = insight_store.load(document_id) if document_id else None
+
+    contract_query_docs = []
+    if stored_contract and stored_contract.get("contract_profile"):
+        contract_query_docs = select_contract_query_docs(query, stored_contract)
 
     # Fetch docs from store for BM25 (filtered by document_id)
     store = ChromaStore()
@@ -266,34 +308,40 @@ def query_api(request: QueryRequest):
             detail=f"No indexed content found for document_id '{document_id}'."
         )
 
-    vector = VectorRetriever()
-    bm25 = BM25Retriever(all_docs)
-    hybrid = HybridRetriever(vector, bm25)
+    docs = []
 
-    try:
-        results = hybrid.retrieve(query, k=10, document_id=document_id)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to retrieve supporting context for the query."
-        ) from exc
+    if contract_query_docs:
+        docs = [clause["clause_text"] for clause in contract_query_docs if clause.get("clause_text")]
 
-    if not results:
-        raise HTTPException(
-            status_code=404,
-            detail="No relevant context found for the query."
-        )
+    if not docs:
+        vector = VectorRetriever()
+        bm25 = BM25Retriever(all_docs)
+        hybrid = HybridRetriever(vector, bm25)
 
-    reranker = Reranker()
-    try:
-        final_docs = reranker.rerank(query, results, top_k=5)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to rerank retrieved context."
-        ) from exc
+        try:
+            results = hybrid.retrieve(query, k=10, document_id=document_id)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to retrieve supporting context for the query."
+            ) from exc
 
-    docs = [doc["content"] for doc in final_docs]
+        if not results:
+            raise HTTPException(
+                status_code=404,
+                detail="No relevant context found for the query."
+            )
+
+        reranker = Reranker()
+        try:
+            final_docs = reranker.rerank(query, results, top_k=5)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to rerank retrieved context."
+            ) from exc
+
+        docs = [doc["content"] for doc in final_docs]
 
     generator = StructuredGenerator()
     ensure_generation_ready(generator)
