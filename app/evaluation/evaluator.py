@@ -3,27 +3,33 @@ from sentence_transformers import SentenceTransformer, util
 from thefuzz import fuzz
 import re
 
+
 class InsightEvaluator:
     def __init__(self):
         self.embedder = None
         self.embedder_model_name = "all-MiniLM-L6-v2"
 
         self.generic_phrases = [
-            "the document discusses", "review the pdf", "for more information",
-            "as mentioned in the text", "the document provides",
-            "there is no mention of", "is discussed in the section",
-            "the text explains", "according to the document"
+            "the document discusses",
+            "review the pdf",
+            "for more information",
+            "as mentioned in the text",
+            "the document provides",
+            "there is no mention of",
+            "is discussed in the section",
+            "the text explains",
+            "according to the document",
         ]
 
         # Specificity signals — a good insight should contain at least one of these
         self.specificity_patterns = [
-            r'\d+',                    # any number
-            r'\b[A-Z][a-z]+[A-Z]\w*', # camelCase or proper technical terms
-            r'section \d',             # section reference
-            r'chapter \d',             # chapter reference
-            r'equation|formula|theorem|lemma|proof',
-            r'%|ratio|rate|score|accuracy|loss',
-            r'\$|revenue|cost|margin|profit',
+            r"\d+",  # any number
+            r"\b[A-Z][a-z]+[A-Z]\w*",  # camelCase or proper technical terms
+            r"section \d",  # section reference
+            r"chapter \d",  # chapter reference
+            r"equation|formula|theorem|lemma|proof",
+            r"%|ratio|rate|score|accuracy|loss",
+            r"\$|revenue|cost|margin|profit",
         ]
         self.legal_advice_patterns = [
             r"\byou should\b",
@@ -43,8 +49,13 @@ class InsightEvaluator:
     # 1. STRUCTURE CHECK — are all required fields present and well-formed?
     # -------------------------------------------------------------------------
     def evaluate_structure(self, insights: Dict[str, Any]) -> tuple:
-        required_fields = ["summary", "key_insights", "risks",
-                           "recommended_actions", "reasoning"]
+        required_fields = [
+            "summary",
+            "key_insights",
+            "risks",
+            "recommended_actions",
+            "reasoning",
+        ]
         issues = []
         score = 100
 
@@ -75,12 +86,20 @@ class InsightEvaluator:
                 for i, item in enumerate(val):
                     if not isinstance(item, dict):
                         continue
-                    for sub in ["finding", "severity", "reason", "source", "confidence"]:
+                    for sub in [
+                        "finding",
+                        "severity",
+                        "reason",
+                        "source",
+                        "confidence",
+                    ]:
                         if sub not in item:
                             issues.append(f"risks[{i}] missing '{sub}'")
                             score -= 4
                     if item.get("severity") not in ("high", "medium", "low"):
-                        issues.append(f"risks[{i}] has invalid severity: {item.get('severity')}")
+                        issues.append(
+                            f"risks[{i}] has invalid severity: {item.get('severity')}"
+                        )
                         score -= 3
 
         return max(0, score), issues
@@ -99,10 +118,18 @@ class InsightEvaluator:
         sections = {
             "key_insights": "insight",
             "risks": "finding",
-            "recommended_actions": "action"
+            "recommended_actions": "action",
         }
 
-        claims_to_check = []   # (field, claim_kind, claim_text, source_text, severity_weight)
+        ABSENCE_SIGNALS = {
+            "no ", "missing", "absent", "not present", "does not include",
+            "lacks", "no mention", "not addressed", "not specified",
+            "no clause", "no provision", "not defined", "omits", "fails to"
+        }
+
+        claims_to_check = (
+            []
+        )  # (field, claim_kind, claim_text, source_text, severity_weight)
         for field, label in sections.items():
             for item in insights.get(field, []):
                 if not isinstance(item, dict):
@@ -117,16 +144,39 @@ class InsightEvaluator:
                     claim_parts.append(("rationale", item.get("rationale", "").strip()))
 
                 if not source:
-                    preview = primary_claim or item.get("reason", "") or item.get("rationale", "")
+                    preview = (
+                        primary_claim
+                        or item.get("reason", "")
+                        or item.get("rationale", "")
+                    )
                     issues.append(f"No source quote for {field}: '{preview[:40]}...'")
                     total_weight += 1.0
                     continue
 
+                if source.strip() == "MISSING_CLAUSE":
+                    finding_lower = primary_claim.lower()
+                    is_genuine_absence = any(sig in finding_lower for sig in ABSENCE_SIGNALS)
+                    if is_genuine_absence:
+                        passed_weight += 1.0
+                        total_weight += 1.0
+                        issues.append(f"INFO: Absence risk (no clause to cite): '{primary_claim[:60]}...'")
+                    else:
+                        total_weight += 1.0  # penalise misuse of sentinel
+                        issues.append(
+                            f"MISSING_CLAUSE misuse in {field}: finding doesn't describe "
+                            f"an absent clause — provide a real source quote: '{primary_claim[:60]}...'"
+                        )
+                    continue  # skip all further checks for this item
+
                 for claim_kind, claim_text in claim_parts:
                     if not claim_text:
                         continue
-                    weight = 1.0 if claim_kind in ("insight", "finding", "action") else 0.6
-                    claims_to_check.append((field, claim_kind, claim_text, source, weight))
+                    weight = (
+                        1.0 if claim_kind in ("insight", "finding", "action") else 0.6
+                    )
+                    claims_to_check.append(
+                        (field, claim_kind, claim_text, source, weight)
+                    )
                     total_weight += weight
 
         if not claims_to_check:
@@ -136,7 +186,9 @@ class InsightEvaluator:
         semantic_meta = []
 
         for field, claim_kind, claim, source, weight in claims_to_check:
-            quote_check = self._find_source_window(source, context, context_lower, normalized_context)
+            quote_check = self._find_source_window(
+                source, context, context_lower, normalized_context
+            )
             if not quote_check["found"]:
                 issues.append(
                     f"Hallucination risk in {field}: source not found in context "
@@ -144,19 +196,21 @@ class InsightEvaluator:
                 )
                 continue
 
-            # FIX: 'action' passes grounding upon quote confirmation (Existence Check) 
+            # FIX: 'action' passes grounding upon quote confirmation (Existence Check)
             # It mathematically cannot pass Cosine Similarity against a descriptive fact.
             if claim_kind == "action":
                 passed_weight += weight
                 continue
 
-            # CRITICAL FIX: To prevent embedding dilution, we must compare the claim 
+            # CRITICAL FIX: To prevent embedding dilution, we must compare the claim
             # against the verified verbatim 'source' quote, NOT the massive surrounding window.
             semantic_pairs.extend([claim, source])
             semantic_meta.append((field, claim_kind, claim, weight))
 
         if semantic_pairs:
-            embeddings = self._get_embedder().encode(semantic_pairs, convert_to_tensor=True)
+            embeddings = self._get_embedder().encode(
+                semantic_pairs, convert_to_tensor=True
+            )
             for idx, (field, claim_kind, claim, weight) in enumerate(semantic_meta):
                 claim_embedding = embeddings[idx * 2]
                 window_embedding = embeddings[idx * 2 + 1]
@@ -183,13 +237,17 @@ class InsightEvaluator:
 
     def _get_embedder(self):
         if self.embedder is None:
-            self.embedder = SentenceTransformer(self.embedder_model_name, local_files_only=True)
+            self.embedder = SentenceTransformer(
+                self.embedder_model_name, local_files_only=True
+            )
         return self.embedder
 
     def _normalize_text(self, text: str) -> str:
         return re.sub(r"\s+", " ", text.lower()).strip()
 
-    def _find_source_window(self, source: str, context: str, context_lower: str, normalized_context: str) -> Dict[str, Any]:
+    def _find_source_window(
+        self, source: str, context: str, context_lower: str, normalized_context: str
+    ) -> Dict[str, Any]:
         source_lower = source.lower().strip()
         normalized_source = self._normalize_text(source)
         fuzzy_score = fuzz.partial_ratio(source_lower, context_lower)
@@ -200,34 +258,24 @@ class InsightEvaluator:
             return {
                 "found": True,
                 "fuzzy": 100,
-                "window": self._extract_window(context, direct_index, len(source))
+                "window": self._extract_window(context, direct_index, len(source)),
             }
 
         # Then try normalized matching to tolerate whitespace/newline differences.
         normalized_index = normalized_context.find(normalized_source)
         if normalized_index != -1:
-            return {
-                "found": True,
-                "fuzzy": 100,
-                "window": normalized_source
-            }
+            return {"found": True, "fuzzy": 100, "window": normalized_source}
 
         # Finally fall back to fuzzy matching for slightly imperfect quotes.
         min_fuzzy = 88 if len(normalized_source) < 80 else 82
         if fuzzy_score >= min_fuzzy:
-            return {
-                "found": True,
-                "fuzzy": fuzzy_score,
-                "window": source
-            }
+            return {"found": True, "fuzzy": fuzzy_score, "window": source}
 
-        return {
-            "found": False,
-            "fuzzy": fuzzy_score,
-            "window": ""
-        }
+        return {"found": False, "fuzzy": fuzzy_score, "window": ""}
 
-    def _extract_window(self, context: str, start: int, source_len: int, radius: int = 220) -> str:
+    def _extract_window(
+        self, context: str, start: int, source_len: int, radius: int = 220
+    ) -> str:
         left = max(0, start - radius)
         right = min(len(context), start + source_len + radius)
         return context[left:right]
@@ -252,7 +300,9 @@ class InsightEvaluator:
         # Check summary depth
         summary = insights.get("summary", "")
         if len(summary.split()) < 25:
-            issues.append(f"Summary too short ({len(summary.split())} words — need 25+)")
+            issues.append(
+                f"Summary too short ({len(summary.split())} words — need 25+)"
+            )
             score -= 15
 
         # Check for generic phrases in summary + reasoning
@@ -327,33 +377,33 @@ class InsightEvaluator:
     # MAIN RUN — weighted composite score with full report
     # -------------------------------------------------------------------------
     def run(self, insights: Dict[str, Any], context: str) -> Dict[str, Any]:
-        struct_score,   struct_issues   = self.evaluate_structure(insights)
-        ground_score,   ground_issues   = self.evaluate_grounding(insights, context)
-        qual_score,     qual_issues     = self.evaluate_quality(insights)
+        struct_score, struct_issues = self.evaluate_structure(insights)
+        ground_score, ground_issues = self.evaluate_grounding(insights, context)
+        qual_score, qual_issues = self.evaluate_quality(insights)
         coverage_score, coverage_issues = self.evaluate_coverage(insights)
 
         # Weights: Grounding=40%, Quality=25%, Structure=20%, Coverage=15%
         final_score = (
-            ground_score   * 0.40 +
-            qual_score     * 0.25 +
-            struct_score   * 0.20 +
-            coverage_score * 0.15
+            ground_score * 0.40
+            + qual_score * 0.25
+            + struct_score * 0.20
+            + coverage_score * 0.15
         )
 
         all_issues = struct_issues + ground_issues + qual_issues + coverage_issues
 
         return {
-            "score":   round(final_score),
-            "status":  "pass" if final_score >= 70 else "fail",
-            "issues":  all_issues,
+            "score": round(final_score),
+            "status": "pass" if final_score >= 70 else "fail",
+            "issues": all_issues,
             "issue_count": len(all_issues),
             "metrics": {
-                "grounding":  ground_score,
-                "quality":    qual_score,
-                "structure":  struct_score,
-                "coverage":   coverage_score,
+                "grounding": ground_score,
+                "quality": qual_score,
+                "structure": struct_score,
+                "coverage": coverage_score,
             },
-            "recommendation": self._recommend(final_score, all_issues)
+            "recommendation": self._recommend(final_score, all_issues),
         }
 
     def evaluate_legal_review(
@@ -371,18 +421,29 @@ class InsightEvaluator:
         severity_score = 100
         completeness_score = 100
 
-        clause_types_present = {clause.get("type", "") for clause in clauses if clause.get("type")}
+        clause_types_present = {
+            clause.get("type", "") for clause in clauses if clause.get("type")
+        }
         doc_type = contract_profile.get("document_type", "")
 
         required_fields = {
-            "finding_type", "clause_type", "severity", "title",
-            "explanation", "clause_refs", "source_quotes", "confidence", "status"
+            "finding_type",
+            "clause_type",
+            "severity",
+            "title",
+            "explanation",
+            "clause_refs",
+            "source_quotes",
+            "confidence",
+            "status",
         }
 
         for idx, finding in enumerate(review_findings):
             missing = required_fields - set(finding.keys())
             if missing:
-                issues.append(f"review_findings[{idx}] missing fields: {', '.join(sorted(missing))}")
+                issues.append(
+                    f"review_findings[{idx}] missing fields: {', '.join(sorted(missing))}"
+                )
                 structure_score -= 10
 
             explanation = str(finding.get("explanation", ""))
@@ -408,7 +469,9 @@ class InsightEvaluator:
                     grounding_score -= 12
                 else:
                     for quote in source_quotes:
-                        if quote and self._normalize_text(quote) not in self._normalize_text(clause_text):
+                        if quote and self._normalize_text(
+                            quote
+                        ) not in self._normalize_text(clause_text):
                             issues.append(
                                 f"review_findings[{idx}] source quote not found in contract text: '{quote[:60]}...'"
                             )
@@ -428,12 +491,20 @@ class InsightEvaluator:
                     severity_score -= 14
 
             confidence = finding.get("confidence")
-            if confidence is None or not isinstance(confidence, (int, float)) or not (0.0 <= confidence <= 1.0):
-                issues.append(f"review_findings[{idx}] has invalid confidence value: {confidence}")
+            if (
+                confidence is None
+                or not isinstance(confidence, (int, float))
+                or not (0.0 <= confidence <= 1.0)
+            ):
+                issues.append(
+                    f"review_findings[{idx}] has invalid confidence value: {confidence}"
+                )
                 structure_score -= 5
 
         if doc_type in {"msa", "sow", "vendor_agreement"}:
-            covered = len(clause_types_present.intersection(self.high_value_legal_clauses))
+            covered = len(
+                clause_types_present.intersection(self.high_value_legal_clauses)
+            )
             if covered < 3:
                 issues.append(
                     f"Legal review completeness is low: only {covered} of 5 high-value clause types detected."
@@ -445,14 +516,16 @@ class InsightEvaluator:
                 )
                 completeness_score -= 20
             if len(review_findings) == 0:
-                issues.append("No legal review findings were generated for a commercial contract.")
+                issues.append(
+                    "No legal review findings were generated for a commercial contract."
+                )
                 completeness_score -= 25
 
         final_score = (
-            max(0, grounding_score) * 0.30 +
-            max(0, severity_score) * 0.20 +
-            max(0, structure_score) * 0.15 +
-            max(0, completeness_score) * 0.35
+            max(0, grounding_score) * 0.30
+            + max(0, severity_score) * 0.20
+            + max(0, structure_score) * 0.15
+            + max(0, completeness_score) * 0.35
         )
 
         if final_score >= 88:
@@ -463,7 +536,9 @@ class InsightEvaluator:
             status = "fail"
 
         if doc_type in {"msa", "sow", "vendor_agreement"}:
-            covered = len(clause_types_present.intersection(self.high_value_legal_clauses))
+            covered = len(
+                clause_types_present.intersection(self.high_value_legal_clauses)
+            )
             if covered < 3 and status == "pass":
                 status = "needs_review"
 
@@ -492,10 +567,14 @@ class InsightEvaluator:
             return "Output quality is high — safe to show to client."
         if score >= 70:
             return "Acceptable quality — review flagged issues before client delivery."
-        hallucination_flags = [i for i in issues if "Hallucination" in i or "semantic" in i.lower()]
+        hallucination_flags = [
+            i for i in issues if "Hallucination" in i or "semantic" in i.lower()
+        ]
         if hallucination_flags:
             return "BLOCK — hallucination risk detected. Do not show to client. Re-run with better context."
         generic_flags = [i for i in issues if "generic" in i.lower()]
         if generic_flags:
-            return "REJECT — insights are too generic. Improve retrieval and re-generate."
+            return (
+                "REJECT — insights are too generic. Improve retrieval and re-generate."
+            )
         return "FAIL — multiple quality issues. Check metrics for details."

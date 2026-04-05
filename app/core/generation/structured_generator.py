@@ -32,6 +32,11 @@ QUALITY CONTROL RULES:
 - A risk is only valid if it describes an abnormal term, an aggressive commercial stance, uncapped liability, or a missing standard protection within this specific document.
 - Never give definitive legal advice (e.g. "You will be sued"), instead frame risks as commercial exposure (e.g. "Creates exposure to third party claims").
 - ANTI-HALLUCINATION: If the retrieved context does not contain enough information to support a claim with a verbatim quote, do NOT make the claim. Instead, set context_quality to 'insufficient' and explain what's missing in context_gap. Never generate a source quote that you cannot find word-for-word in the provided context.
+- MISSING CLAUSE RULE: If a risk involves a clause or protection that is completely absent from the contract (not just weak or unfavorable), you MUST:
+  1. Set source to exactly: "MISSING_CLAUSE"
+  2. Begin the finding with absence language: "No [clause type] is present", "The contract lacks...", "There is no mention of..."
+  3. Still provide a severity and reason explaining why this absence is risky.
+  Only use MISSING_CLAUSE when the clause genuinely does not exist. If the clause exists but is unfavorable, quote the actual clause text.
 
 CHAIN-OF-THOUGHT (MANDATORY):
 Before generating the final JSON, identify the most significant commercial or legal obligations in the context. Evaluate which are non-standard or pose risk. Then select the best 3-5 for insights and risks.
@@ -57,7 +62,7 @@ TASK:
 2. Generate a structured intelligence report in valid JSON format sticking exactly to the schema.
 
 {{
-  "reasoning": "string — your internal thought process detailing legal reasoning",
+  "reasoning": "string — your internal thought process detailing legal reasoning (MUST BE DEEP AND HIGHLY DETAILED, 80-120 words minimum) avoiding generic AI phrases",
   "summary": "string — 3-4 sentences, an executive legal and commercial summary",
   "key_insights": [
     {{

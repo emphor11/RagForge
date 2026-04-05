@@ -1,5 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
 import shutil
@@ -110,7 +111,7 @@ def get_insights(document_id: str):
     data = store.load(document_id)
 
     if not data:
-        return {"error": "Not found"}
+        raise HTTPException(status_code=404, detail="Not found")
 
     return data
 
@@ -397,7 +398,7 @@ def query_api(request: QueryRequest):
 
 @app.patch("/contracts/{document_id}/findings/{finding_index}/status")
 def update_contract_finding_status(document_id: str, finding_index: int, payload: FindingStatusUpdate):
-    allowed_statuses = {"open", "reviewed", "accepted", "dismissed", "escalated"}
+    allowed_statuses = {"open", "reviewed", "accepted", "dismissed", "escalated", "negotiate"}
     if payload.status not in allowed_statuses:
         raise HTTPException(status_code=400, detail="Invalid finding status.")
 
@@ -431,3 +432,85 @@ def update_contract_finding_note(document_id: str, finding_index: int, payload: 
         "finding_index": finding_index,
         "finding": updated_finding,
     }
+
+
+@app.get("/contracts/{document_id}/export")
+def export_contract_report(document_id: str):
+    store = InsightStore()
+    data = store.load(document_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    from docx import Document
+    from docx.shared import Pt, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    import io
+
+    doc = Document()
+    
+    # Title
+    title = doc.add_heading(f"Contract Review Report: {document_id}", 0)
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    # Overview
+    profile = data.get("contract_profile", {})
+    doc.add_heading("Contract Overview", level=1)
+    table = doc.add_table(rows=0, cols=2)
+    
+    def add_row(label, value):
+        row = table.add_row().cells
+        row[0].text = label
+        row[1].text = str(value or "N/A")
+
+    add_row("Document Type", profile.get("document_type", "N/A").replace("_", " ").title())
+    add_row("Effective Date", profile.get("effective_date"))
+    add_row("Governing Law", profile.get("governing_law"))
+    add_row("Term Length", profile.get("term_length"))
+    add_row("Parties", ", ".join(profile.get("parties", [])))
+
+    # Findings
+    findings = data.get("review_findings", [])
+    if findings:
+        doc.add_heading("Review Findings", level=1)
+        for finding in findings:
+            p = doc.add_paragraph()
+            run = p.add_run(f"{finding.get('title', 'Untitled Finding')}")
+            run.bold = True
+            run.font.size = Pt(12)
+            
+            p = doc.add_paragraph()
+            p.add_run(f"Type: {finding.get('finding_type', 'N/A').replace('_', ' ').title()} | ")
+            sev = finding.get('severity', 'N/A').upper()
+            run_sev = p.add_run(f"Severity: {sev}")
+            if sev == 'HIGH':
+                run_sev.font.color.rgb = RGBColor(200, 0, 0)
+            
+            doc.add_paragraph(finding.get("explanation", "No explanation provided."))
+            
+            if finding.get("source_quotes"):
+                doc.add_paragraph("Source Quotes:")
+                for quote in finding["source_quotes"]:
+                    doc.add_paragraph(f'"{quote}"', style='List Bullet')
+            
+            doc.add_paragraph("-" * 30)
+
+    # Clause Inventory
+    clauses = data.get("clauses", [])
+    if clauses:
+        doc.add_heading("Clause Inventory", level=1)
+        for clause in clauses:
+            p = doc.add_paragraph(style='Heading 2')
+            p.add_run(f"{clause.get('title')} (Page {clause.get('page_number', 'N/A')})")
+            doc.add_paragraph(clause.get("clause_text", ""))
+
+    # Save to buffer
+    target = io.BytesIO()
+    doc.save(target)
+    target.seek(0)
+
+    return StreamingResponse(
+        target,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f"attachment; filename=RagForge_Report_{document_id.replace(' ', '_')}.docx"}
+    )
+
