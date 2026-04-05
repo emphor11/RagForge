@@ -101,36 +101,64 @@ DOCUMENT TEXT:
         return result
 
     def extract_clauses(self, chunks: List[dict]) -> List[dict]:
-        # Formulate chunks into a manageable text
-        chunk_text = ""
-        for chunk in chunks[:25]: # Limit to reasonable number to prevent massive context blows
-            chunk_id = chunk["metadata"]["chunk_id"]
-            page = chunk["metadata"].get("page_number", 1)
-            chunk_text += f"\n--- [Chunk {chunk_id} | Page {page}] ---\n{chunk['content']}\n"
+        all_clauses = []
+        batch_size = 20
+        
+        for i in range(0, len(chunks), batch_size):
+            batch = chunks[i : i + batch_size]
+            chunk_text = ""
+            for chunk in batch:
+                chunk_id = chunk["metadata"]["chunk_id"]
+                page = chunk["metadata"].get("page_number", 1)
+                chunk_text += f"\n--- [Chunk {chunk_id} | Page {page}] ---\n{chunk['content']}\n"
 
-        prompt = f"""
-Identify all distinct legal clauses within the provided text.
-For each clause, determine its 'title', assign a standardized snake_case 'type' (e.g., 'liability', 'termination', 'confidentiality', etc), and carefully extract the relevant 'clause_text'.
+            prompt = f"""
+Identify ALL distinct legal sections and clauses within the provided text.
+For each clause, determine its 'title' as it appears in the text, assign a standardized snake_case 'type', and carefully extract the relevant 'clause_text'.
 Make sure to include the chunk_id and page_number corresponding to where you found the text. 
 
 DOCUMENT CHUNKS:
 {chunk_text}
 """
-        result = self._call_llm(prompt, ClauseExtractionModel)
-        return result.get("clauses", [])
+            result = self._call_llm(prompt, ClauseExtractionModel)
+            batch_clauses = result.get("clauses", [])
+            all_clauses.extend(batch_clauses)
+            
+        return all_clauses
 
     def spot_issues(self, profile: dict, clauses: List[dict]) -> List[dict]:
         # Serialize the context for the LLM
         profile_str = json.dumps(profile, indent=2)
         clauses_str = json.dumps([{"title": c["title"], "type": c["type"], "text": c["clause_text"][:300] + "..."} for c in clauses], indent=2)
         
+        # Deterministic check for presence to prevent hallucinations
+        # We explicitly tell the LLM which categories already exist.
+        clause_types_present = set(c["type"].lower() for c in clauses)
+        existing_hints = ", ".join(clause_types_present)
+
         prompt = f"""
-You are an expert corporate lawyer conducting a contract review audit.
-Using the following contract profile and identified clauses, spot critical issues.
+You are an expert corporate lawyer conducting a contract review audit for an Indian-market commercial agreement.
+
+### CRITICAL ADVISORY:
+The following clause types were DETERMINISTICALLY FOUND in this document:
+[{existing_hints}]
+
+- IF A TYPE IS LISTED ABOVE, DO NOT FLAG IT AS 'missing_protection'.
+- Analyze the text of these clauses for 'risk' or 'negotiation_point'.
+- If a core protection (like 'liability_cap' or 'indemnification') is NOT listed above, flag as 'missing_protection'.
+
+### LEGAL CHECKLIST (Benchmark: Standard Indian MSA/SOW):
+1. **Liability**: Is there a 'liability_cap'? Is it uncapped? Is it mutual?
+2. **Indemnity**: Is indemnification present? Does it cover IP infringement?
+3. **Payments**: Are interest rates excessive (e.g. >18% annually)? Are there 15-day payment terms?
+4. **IP Context**: Are there carve-outs for 'pre-existing rights' or 'background IP'?
+5. **Force Majeure**: Is it defined? Does it include standard exclusions?
+6. **Termination**: Is there a clear 'cure period' for breach (typically 30 days)?
+
 Look for:
-1. 'missing_protection' (e.g. no limitation of liability or termination right in a commercial contract).
-2. 'risk' (e.g. uncapped liability, non-standard aggressive terms).
-3. 'negotiation_point' (e.g. short notice periods, unclear scope).
+1. 'missing_protection' (Absent clauses).
+2. 'risk' (Uncapped liability, high interest, non-mutual terms).
+3. 'negotiation_point' (Notice periods, 1-year non-solicit (if above norm), restrictive clauses).
 
 CONTRACT PROFILE:
 {profile_str}

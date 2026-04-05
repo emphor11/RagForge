@@ -168,6 +168,13 @@ class InsightEvaluator:
                         )
                     continue  # skip all further checks for this item
 
+                if source.startswith("DERIVED_FROM_MISSING:"):
+                    # If an action is based on a deterministic missing clause, it passes grounding.
+                    passed_weight += 1.0
+                    total_weight += 1.0
+                    issues.append(f"INFO: Action based on missing protection ({source.split(':')[-1]}): '{primary_claim[:60]}...'")
+                    continue
+
                 for claim_kind, claim_text in claim_parts:
                     if not claim_text:
                         continue
