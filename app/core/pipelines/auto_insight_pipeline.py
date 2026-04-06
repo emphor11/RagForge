@@ -14,8 +14,8 @@ class AutoInsightPipeline:
         self.contract_analyzer = LLMContractAnalyzer()
 
     def run(self, file_path: str, document_id: str):
-        # Step 1: Ingest document → chunks
-        chunks = self.ingestion_pipeline(file_path, document_id)
+        # Step 1: Ingest document → chunks, raw_text
+        chunks, raw_text = self.ingestion_pipeline(file_path, document_id)
 
         # Step 2: Store chunks in vector DB (added for RAG)
         store_chunks(chunks)
@@ -99,6 +99,7 @@ class AutoInsightPipeline:
             "evaluation": evaluation,
             "review_audit": review_audit,
             "retrieval_debug": retrieval_debug,
+            "raw_text": raw_text,
         }
 
         # Step 9: Save result to persistent store

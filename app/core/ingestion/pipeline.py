@@ -9,4 +9,4 @@ def ingest_document(file_path: str, document_id: str):
         document_id=document_id,
         page_spans=parsed.get("pages", []),
     )
-    return chunks
+    return chunks, parsed["text"]

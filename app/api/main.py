@@ -1,6 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
 from typing import Optional
 import shutil
@@ -16,6 +16,10 @@ from app.core.retrieval.hybrid_retriever import HybridRetriever
 from app.core.reranking.reranker import Reranker
 from app.db.chroma_store import ChromaStore
 from app.core.review.legal_query import select_contract_query_docs
+from app.services.export_service import ExportService
+from app.db.database import SessionLocal
+from app.models.audit import AuditLog
+from sqlalchemy.orm import Session
 
 app = FastAPI()
 
@@ -114,6 +118,49 @@ def get_insights(document_id: str):
         raise HTTPException(status_code=404, detail="Not found")
 
     return data
+
+
+@app.get("/export/{document_id}")
+def export_docx(document_id: str):
+    store = InsightStore()
+    data = store.load(document_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Document data not found")
+        
+    export_service = ExportService()
+    try:
+        file_path = export_service.generate_report(document_id, data)
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=500, detail="Failed to generate file")
+        return FileResponse(
+            path=file_path, 
+            filename=f"RAG_Report_{document_id}.docx",
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/contracts/{document_id}/findings/{idx}/audit")
+def update_finding_audit(document_id: str, idx: int, payload: dict):
+    # E.g. {"status": "accepted", "user_id": "test_user"}
+    
+    store = InsightStore()
+    new_status = payload.get("status")
+    reviewer_note = payload.get("reviewer_note")
+    user_id = payload.get("user_id", "anonymous")
+
+    if new_status:
+        updated_finding = store.update_review_finding_status(document_id, idx, new_status, user_id)
+    elif reviewer_note is not None:
+        updated_finding = store.update_review_finding_note(document_id, idx, reviewer_note, user_id)
+    else:
+        raise HTTPException(status_code=400, detail="No status or note provided")
+        
+    if not updated_finding:
+        raise HTTPException(status_code=404, detail="Finding not found")
+            
+    return {"message": "Audit logged successfully", "finding": updated_finding}
 
 
 @app.get("/contracts/{document_id}/overview")
