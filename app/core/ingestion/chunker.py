@@ -44,7 +44,7 @@ def _iter_segments(text: str):
                         "start_char": segment_start,
                     })
             current_heading = line
-            current_lines = []
+            current_lines = [line]  # KEEP heading in actual text content
             segment_start = line_start
             continue
 

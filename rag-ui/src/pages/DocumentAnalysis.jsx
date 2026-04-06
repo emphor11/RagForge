@@ -692,9 +692,6 @@ const DocumentAnalysis = () => {
                           <button className="query-btn" style={{ padding: '8px 12px', minWidth: 'auto', background: 'var(--warning)', color: '#000' }} onClick={() => handleFindingStatusUpdate(idx, "negotiate")}>Add to Redline</button>
                           <button className="query-btn" style={{ padding: '8px 12px', minWidth: 'auto', background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }} onClick={() => handleFindingStatusUpdate(idx, "dismissed")}>Dismiss</button>
                         </div>
-                        <div style={{ textAlign: 'right', marginTop: '10px' }}>
-                           {renderConfidence(finding.confidence)}
-                        </div>
                       </li>
                       );
                     })}
@@ -719,9 +716,9 @@ const DocumentAnalysis = () => {
           </div>
           <div className="card-body">
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '12px' }}>
-              {contractClauses.map((clause) => (
+              {contractClauses.map((clause, idx) => (
                 <div
-                  key={`${clause.chunk_id}-${clause.title}`}
+                  key={`${idx}-${clause.title}`}
                   style={{
                     border: '1px solid var(--border-color)',
                     borderRadius: '12px',
@@ -772,7 +769,7 @@ const DocumentAnalysis = () => {
               Analysis Quality Check
             </div>
             <div className={`risk-badge ${result.evaluation.status === 'pass' ? 'low' : 'high'}`} style={{ textTransform: 'uppercase' }}>
-              {result.evaluation.status === 'pass' ? 'PASS' : 'FAIL'}
+              {result.evaluation.status === 'pass' ? 'VERIFIED' : 'REVIEW REQUIRED'}
             </div>
           </div>
           <div className="card-body">

@@ -1,4 +1,5 @@
 import json
+import re
 from typing import List, Dict, Any
 from pydantic import BaseModel, Field
 from groq import Groq
@@ -85,11 +86,34 @@ class LLMContractAnalyzer:
         # Fallback if extremely fails
         return {}
 
+    def _classify_contract_type(self, text: str) -> str:
+        text_lower = text.lower()
+        
+        # Priority 1: Most Specific (NDA)
+        if "non-disclosure" in text_lower or "confidentiality agreement" in text_lower:
+            return "NDA"
+            
+        # Priority 2: Specific domain (Employment)
+        if "salary" in text_lower or re.search(r'\bctc\b', text_lower) or "employment" in text_lower:
+            return "Employment Agreement"
+            
+        # Priority 3: Child documents (SOW)
+        # Using word boundaries for 'sow' to avoid matching 'sown', 'soweto', etc.
+        if "statement of work" in text_lower or re.search(r'\bsow\b', text_lower):
+            return "Statement of Work (SOW)"
+            
+        # Priority 4: Broad master agreements (MSA / Consulting)
+        if "master services agreement" in text_lower or ("company" in text_lower and "consultant" in text_lower):
+            return "Master Services Agreement (MSA)"
+            
+        return "Commercial Agreement"
+
     def extract_profile(self, document_id: str, context: str) -> dict:
+        deterministic_type = self._classify_contract_type(context[:3000])
         prompt = f"""
 Analyze the following document preamble and introductory text to extract the core contract profile metadata.
-Find the legal entities (parties) involved, the document type, the effective date, any mention of term/duration, governing law, and payment terms. 
-If a field is not present, use an empty string.
+Find the legal entities (parties) involved, the effective date, any mention of term/duration, governing law, and payment terms. 
+You MUST use the following assigned contract type unless you find explicit evidence otherwise: {deterministic_type}
 
 DOCUMENT TEXT:
 {context}
@@ -97,6 +121,8 @@ DOCUMENT TEXT:
         result = self._call_llm(prompt, ProfileExtractionModel)
         if result:
             result['document_id'] = document_id
+            if 'document_type' not in result or not result['document_type']:
+                result['document_type'] = deterministic_type
             result['clause_index'] = []  # Will be populated later 
         return result
 
@@ -127,38 +153,41 @@ DOCUMENT CHUNKS:
         return all_clauses
 
     def spot_issues(self, profile: dict, clauses: List[dict]) -> List[dict]:
-        # Serialize the context for the LLM
         profile_str = json.dumps(profile, indent=2)
         clauses_str = json.dumps([{"title": c["title"], "type": c["type"], "text": c["clause_text"][:300] + "..."} for c in clauses], indent=2)
         
         # Deterministic check for presence to prevent hallucinations
         # We explicitly tell the LLM which categories already exist.
         clause_types_present = set(c["type"].lower() for c in clauses)
-        existing_hints = ", ".join(clause_types_present)
+        clauses_present_list = ", ".join(clause_types_present)
 
         prompt = f"""
-You are an expert corporate lawyer conducting a contract review audit for an Indian-market commercial agreement.
+You are an expert corporate lawyer conducting a contract review audit for an Indian-market agreement.
 
-### CRITICAL ADVISORY:
+### CRITICAL ADVISORY - DETERMINISTIC GUARDRAILS:
 The following clause types were DETERMINISTICALLY FOUND in this document:
-[{existing_hints}]
+[{clauses_present_list}]
 
-- IF A TYPE IS LISTED ABOVE, DO NOT FLAG IT AS 'missing_protection'.
-- Analyze the text of these clauses for 'risk' or 'negotiation_point'.
-- If a core protection (like 'liability_cap' or 'indemnification') is NOT listed above, flag as 'missing_protection'.
+- Only flag a clause as missing if it DOES NOT appear in the list above. Never contradict this list.
+- If a core protection (like 'liability_cap' or 'indemnification') is NOT in the list above, flag as 'missing_protection'.
+- If a recommended action addresses a missing clause, set the source to DERIVED_FROM_MISSING:[clause_type]. Only use MISSING_CLAUSE on the risk finding itself.
 
-### LEGAL CHECKLIST (Benchmark: Standard Indian MSA/SOW):
-1. **Liability**: Is there a 'liability_cap'? Is it uncapped? Is it mutual?
-2. **Indemnity**: Is indemnification present? Does it cover IP infringement?
-3. **Payments**: Are interest rates excessive (e.g. >18% annually)? Are there 15-day payment terms?
-4. **IP Context**: Are there carve-outs for 'pre-existing rights' or 'background IP'?
-5. **Force Majeure**: Is it defined? Does it include standard exclusions?
-6. **Termination**: Is there a clear 'cure period' for breach (typically 30 days)?
+### LEGAL CHECKLIST (Evaluate every item below):
+1. Limitation of liability (Is it present? Uncapped? Mutual?)
+2. Indemnification (IP, third-party, data breach)
+3. Warranty on deliverables + defect cure period
+4. Pre-existing IP carve-out
+5. Payment milestones & penalty rate (>18% interest is aggressive)
+6. Force majeure (definition + notice + duration)
+7. Internal consistency (do notice periods match cure windows?)
+8. Data protection obligations (DPDPA 2023 for Indian contracts)
+9. Termination consequences (IP return, payment on exit)
+10. Subcontracting liability chain
 
 Look for:
 1. 'missing_protection' (Absent clauses).
-2. 'risk' (Uncapped liability, high interest, non-mutual terms).
-3. 'negotiation_point' (Notice periods, 1-year non-solicit (if above norm), restrictive clauses).
+2. 'risk' (Uncapped liability, high interest, non-mutual terms, internal contradictions).
+3. 'negotiation_point' (Notice periods, restrictive clauses).
 
 CONTRACT PROFILE:
 {profile_str}
@@ -169,7 +198,6 @@ IDENTIFIED CLAUSES:
         result = self._call_llm(prompt, ReviewFindingModel)
         raw_findings = result.get("findings", [])
         
-        # Hydrate default metadata expected by UI
         for finding in raw_findings:
             finding["status"] = "open"
             finding["reviewer_note"] = ""
