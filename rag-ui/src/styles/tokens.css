@@ -1,0 +1,130 @@
+/* ===================================================
+   RAGForge Legal — Design Tokens
+   "Precision Legal Intelligence"
+   =================================================== */
+
+:root {
+  /* ---- Surface & Background ---- */
+  --bg-page:          #FAFAF9;
+  --bg-card:          #FFFFFF;
+  --bg-surface-alt:   #F5F5F4;
+
+  /* ---- Sidebar ---- */
+  --sidebar-bg:       #1C1C1A;
+  --sidebar-text:     #A8A69F;
+  --sidebar-text-active: #FFFFFF;
+  --sidebar-accent:   #6366F1;
+  --sidebar-hover:    rgba(255, 255, 255, 0.06);
+
+  /* ---- Text ---- */
+  --text-primary:     #1A1A1A;
+  --text-body:        #374151;
+  --text-muted:       #6B7280;
+  --text-faint:       #9CA3AF;
+
+  /* ---- Borders ---- */
+  --border-default:   #E5E4E0;
+  --border-strong:    #D1D0CC;
+
+  /* ---- Primary Accent ---- */
+  --accent-primary:   #1A1A1A;
+  --accent-primary-hover: #333333;
+  --accent-indigo:    #6366F1;
+
+  /* ---- Severity: Danger / High ---- */
+  --danger:           #DC2626;
+  --danger-bg:        #FEF2F2;
+  --danger-border:    #FECACA;
+
+  /* ---- Severity: Warning / Medium ---- */
+  --warning:          #D97706;
+  --warning-bg:       #FFFBEB;
+  --warning-border:   #FDE68A;
+
+  /* ---- Severity: Success / Low ---- */
+  --success:          #059669;
+  --success-bg:       #F0FDF4;
+  --success-border:   #BBF7D0;
+
+  /* ---- Info / Neutral ---- */
+  --info:             #2563EB;
+  --info-bg:          #EFF6FF;
+  --info-border:      #BFDBFE;
+
+  /* ---- Typography ---- */
+  --font:             'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --text-page-title:  18px;
+  --text-section:     14px;
+  --text-body-size:   14px;
+  --text-label:       12px;
+  --text-metric:      28px;
+  --text-disclaimer:  11px;
+  --weight-normal:    400;
+  --weight-medium:    500;
+  --weight-semibold:  600;
+
+  /* ---- Spacing ---- */
+  --sidebar-width:    220px;
+  --content-max:      1200px;
+  --content-pad:      32px;
+  --card-pad-y:       20px;
+  --card-pad-x:       24px;
+  --section-gap:      24px;
+  --item-gap:         12px;
+
+  /* ---- Radius ---- */
+  --radius-card:      8px;
+  --radius-badge:     6px;
+  --radius-btn:       4px;
+  --radius-full:      9999px;
+
+  /* ---- Transitions ---- */
+  --transition:       0.15s ease;
+}
+
+/* ===================================================
+   DARK MODE OVERRIDES
+   =================================================== */
+[data-theme="dark"] {
+  /* ---- Surface & Background ---- */
+  --bg-page:          #111110;
+  --bg-card:          #1A1A18;
+  --bg-surface-alt:   #222220;
+
+  /* ---- Sidebar (stays the same — already dark) ---- */
+  --sidebar-bg:       #0E0E0D;
+
+  /* ---- Text ---- */
+  --text-primary:     #F5F5F4;
+  --text-body:        #D4D4D3;
+  --text-muted:       #8A8A85;
+  --text-faint:       #5C5C58;
+
+  /* ---- Borders ---- */
+  --border-default:   #2A2A28;
+  --border-strong:    #3A3A37;
+
+  /* ---- Primary Accent ---- */
+  --accent-primary:   #F5F5F4;
+  --accent-primary-hover: #E5E5E3;
+
+  /* ---- Severity: Danger / High ---- */
+  --danger:           #F87171;
+  --danger-bg:        rgba(239, 68, 68, 0.1);
+  --danger-border:    rgba(239, 68, 68, 0.2);
+
+  /* ---- Severity: Warning / Medium ---- */
+  --warning:          #FBBF24;
+  --warning-bg:       rgba(245, 158, 11, 0.1);
+  --warning-border:   rgba(245, 158, 11, 0.2);
+
+  /* ---- Severity: Success / Low ---- */
+  --success:          #34D399;
+  --success-bg:       rgba(5, 150, 105, 0.1);
+  --success-border:   rgba(5, 150, 105, 0.2);
+
+  /* ---- Info / Neutral ---- */
+  --info:             #60A5FA;
+  --info-bg:          rgba(37, 99, 235, 0.1);
+  --info-border:      rgba(37, 99, 235, 0.2);
+}

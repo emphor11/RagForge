@@ -36,7 +36,7 @@ def ensure_generation_ready(generator: StructuredGenerator):
     if not getattr(generator, "api_key", None):
         raise HTTPException(
             status_code=503,
-            detail="Generation is not configured. Set GROQ_API_KEY before using this endpoint."
+            detail="Generation is not configured. Set GROQ_API_KEY before using this endpoint.",
         )
 
 
@@ -49,7 +49,7 @@ pipeline = AutoInsightPipeline(
     ingestion_pipeline=ingest_document,
     generator=StructuredGenerator(),
     insight_store=InsightStore(),
-    evaluator=InsightEvaluator()
+    evaluator=InsightEvaluator(),
 )
 
 
@@ -71,8 +71,7 @@ def upload(file: UploadFile = File(...)):
         raise
     except Exception as exc:
         raise HTTPException(
-            status_code=500,
-            detail="Failed to upload and analyze document."
+            status_code=500, detail="Failed to upload and analyze document."
         ) from exc
     finally:
         if os.path.exists(file_path):
@@ -81,7 +80,7 @@ def upload(file: UploadFile = File(...)):
     return {
         "document_id": document_id,
         "insights": result.get("insights"),
-        "evaluation": result.get("evaluation")
+        "evaluation": result.get("evaluation"),
     }
 
 
@@ -97,12 +96,12 @@ def delete_document(document_id: str):
     data = store.load(document_id)
     if not data:
         raise HTTPException(status_code=404, detail="Document not found")
-    
+
     # Remove from insights DB
     path = os.path.join(store.base_path, f"{document_id}.json")
     if os.path.exists(path):
         os.remove(path)
-        
+
     # Remove from Vector DB
     chroma = ChromaStore()
     chroma.collection.delete(where={"source": document_id})
@@ -126,16 +125,16 @@ def export_docx(document_id: str):
     data = store.load(document_id)
     if not data:
         raise HTTPException(status_code=404, detail="Document data not found")
-        
+
     export_service = ExportService()
     try:
         file_path = export_service.generate_report(document_id, data)
         if not os.path.exists(file_path):
             raise HTTPException(status_code=500, detail="Failed to generate file")
         return FileResponse(
-            path=file_path, 
+            path=file_path,
             filename=f"RAG_Report_{document_id}.docx",
-            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -144,22 +143,26 @@ def export_docx(document_id: str):
 @app.post("/contracts/{document_id}/findings/{idx}/audit")
 def update_finding_audit(document_id: str, idx: int, payload: dict):
     # E.g. {"status": "accepted", "user_id": "test_user"}
-    
+
     store = InsightStore()
     new_status = payload.get("status")
     reviewer_note = payload.get("reviewer_note")
     user_id = payload.get("user_id", "anonymous")
 
     if new_status:
-        updated_finding = store.update_review_finding_status(document_id, idx, new_status, user_id)
+        updated_finding = store.update_review_finding_status(
+            document_id, idx, new_status, user_id
+        )
     elif reviewer_note is not None:
-        updated_finding = store.update_review_finding_note(document_id, idx, reviewer_note, user_id)
+        updated_finding = store.update_review_finding_note(
+            document_id, idx, reviewer_note, user_id
+        )
     else:
         raise HTTPException(status_code=400, detail="No status or note provided")
-        
+
     if not updated_finding:
         raise HTTPException(status_code=404, detail="Finding not found")
-            
+
     return {"message": "Audit logged successfully", "finding": updated_finding}
 
 
@@ -175,7 +178,7 @@ def get_contract_overview(document_id: str):
     if not contract_profile:
         raise HTTPException(
             status_code=404,
-            detail="Contract profile not available for this document yet."
+            detail="Contract profile not available for this document yet.",
         )
 
     return contract_profile
@@ -193,7 +196,7 @@ def get_contract_clauses(document_id: str):
     if not contract_profile:
         raise HTTPException(
             status_code=404,
-            detail="Contract profile not available for this document yet."
+            detail="Contract profile not available for this document yet.",
         )
 
     clauses = data.get("clauses")
@@ -236,7 +239,7 @@ def get_contract_review_audit(document_id: str):
     if not review_audit:
         raise HTTPException(
             status_code=404,
-            detail="Contract review audit is not available for this document yet."
+            detail="Contract review audit is not available for this document yet.",
         )
 
     return review_audit
@@ -246,26 +249,26 @@ def get_contract_review_audit(document_id: str):
 def get_reports():
     store = InsightStore()
     docs = store.list_all()
-    
+
     report_data = {
         "total_docs": len(docs),
         "total_risks": 0,
         "total_actions": 0,
         "risk_summary": {"high": 0, "medium": 0, "low": 0},
         "top_insights": [],
-        "doc_list": []
+        "doc_list": [],
     }
-    
+
     unique_insights = set()
-    
+
     for doc in docs:
         full_data = store.load(doc["id"])
         if not full_data:
             continue
-            
+
         # Support both new nested format and legacy top-level format
         details = full_data.get("insights") if "insights" in full_data else full_data
-            
+
         # Aggregate risks
         risks = details.get("risks", [])
         report_data["total_risks"] += len(risks)
@@ -273,63 +276,72 @@ def get_reports():
             severity = risk.get("severity", "low").lower()
             if severity in report_data["risk_summary"]:
                 report_data["risk_summary"][severity] += 1
-                
+
         # Aggregate actions
         actions = details.get("recommended_actions", [])
         report_data["total_actions"] += len(actions)
-        
+
         # Collect insights
         insights = details.get("key_insights", [])
         for insight in insights:
-            insight_text = insight.get("insight") if isinstance(insight, dict) else insight
+            insight_text = (
+                insight.get("insight") if isinstance(insight, dict) else insight
+            )
             if insight_text and insight_text not in unique_insights:
                 unique_insights.add(insight_text)
                 if len(report_data["top_insights"]) < 10:
                     report_data["top_insights"].append(insight_text)
-                    
+
         # Document brief for list
-        report_data["doc_list"].append({
-            "name": doc["id"],
-            "summary": details.get("summary", "No summary available.")
-        })
-            
+        report_data["doc_list"].append(
+            {
+                "name": doc["id"],
+                "summary": details.get("summary", "No summary available."),
+            }
+        )
+
     return report_data
 
 
 @app.get("/analytics")
 def get_analytics():
     from datetime import datetime, timedelta
+
     store = InsightStore()
     docs = store.list_all()
-    
+
     analytics = {
         "docs_over_time": {},
         "risk_trend": {"last_week": 0, "this_week": 0, "direction": "stable"},
         "performance": {"avg_confidence": 0.0, "avg_response_time": 2.1},
-        "usage": {"total_queries": 0, "total_analyses": len(docs)}
+        "usage": {"total_queries": 0, "total_analyses": len(docs)},
     }
-    
+
     total_conf = 0
     now = datetime.now()
     one_week_ago = now - timedelta(days=7)
-    
+
     for doc in docs:
         full_data = store.load(doc["id"])
         if not full_data:
             continue
-            
+
         # Date aggregation
         dt = datetime.fromtimestamp(doc["upload_date"])
         date_str = dt.strftime("%Y-%m-%d")
-        analytics["docs_over_time"][date_str] = analytics["docs_over_time"].get(date_str, 0) + 1
+        analytics["docs_over_time"][date_str] = (
+            analytics["docs_over_time"].get(date_str, 0) + 1
+        )
 
         # Support both new nested format and legacy top-level format
         details = full_data.get("insights") if "insights" in full_data else full_data
-            
+
         # Confidence
-        conf = details.get("overall_confidence") or details.get("confidence_score") or 0.0
+        conf = (
+            details.get("overall_confidence") or details.get("confidence_score") or 0.0
+        )
         total_conf += conf
-        
+
         # Risk trend calculation
         risks_count = len(details.get("risks", []))
         if dt > one_week_ago:
@@ -340,16 +352,16 @@ def get_analytics():
     # Final calculations
     if len(docs) > 0:
         analytics["performance"]["avg_confidence"] = round(total_conf / len(docs), 2)
-        
+
     # Trend direction
     if analytics["risk_trend"]["this_week"] < analytics["risk_trend"]["last_week"]:
         analytics["risk_trend"]["direction"] = "down"
     elif analytics["risk_trend"]["this_week"] > analytics["risk_trend"]["last_week"]:
         analytics["risk_trend"]["direction"] = "up"
-    
+
     # Mocking untracked query counts for the UI demo/simple version
-    analytics["usage"]["total_queries"] = len(docs) * 4 
-    
+    analytics["usage"]["total_queries"] = len(docs) * 4
+
     return analytics
 
 
@@ -384,13 +396,17 @@ def query_api(request: QueryRequest):
     if document_id and not all_docs:
         raise HTTPException(
             status_code=404,
-            detail=f"No indexed content found for document_id '{document_id}'."
+            detail=f"No indexed content found for document_id '{document_id}'.",
         )
 
     docs = []
 
     if contract_query_docs:
-        docs = [clause["clause_text"] for clause in contract_query_docs if clause.get("clause_text")]
+        docs = [
+            clause["clause_text"]
+            for clause in contract_query_docs
+            if clause.get("clause_text")
+        ]
 
     if not docs:
         vector = VectorRetriever()
@@ -402,13 +418,12 @@ def query_api(request: QueryRequest):
         except Exception as exc:
             raise HTTPException(
                 status_code=500,
-                detail="Failed to retrieve supporting context for the query."
+                detail="Failed to retrieve supporting context for the query.",
             ) from exc
 
         if not results:
             raise HTTPException(
-                status_code=404,
-                detail="No relevant context found for the query."
+                status_code=404, detail="No relevant context found for the query."
             )
 
         reranker = Reranker()
@@ -416,8 +431,7 @@ def query_api(request: QueryRequest):
             final_docs = reranker.rerank(query, results, top_k=5)
         except Exception as exc:
             raise HTTPException(
-                status_code=500,
-                detail="Failed to rerank retrieved context."
+                status_code=500, detail="Failed to rerank retrieved context."
             ) from exc
 
         print(f"\n--- RETRIEVED CHUNKS FOR QUERY ---")
@@ -436,21 +450,31 @@ def query_api(request: QueryRequest):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(
-            status_code=500,
-            detail="Failed to generate a response for the query."
+            status_code=500, detail="Failed to generate a response for the query."
         ) from exc
 
     return output
 
 
 @app.patch("/contracts/{document_id}/findings/{finding_index}/status")
-def update_contract_finding_status(document_id: str, finding_index: int, payload: FindingStatusUpdate):
-    allowed_statuses = {"open", "reviewed", "accepted", "dismissed", "escalated", "negotiate"}
+def update_contract_finding_status(
+    document_id: str, finding_index: int, payload: FindingStatusUpdate
+):
+    allowed_statuses = {
+        "open",
+        "reviewed",
+        "accepted",
+        "dismissed",
+        "escalated",
+        "negotiate",
+    }
     if payload.status not in allowed_statuses:
         raise HTTPException(status_code=400, detail="Invalid finding status.")
 
     store = InsightStore()
-    updated_finding = store.update_review_finding_status(document_id, finding_index, payload.status)
+    updated_finding = store.update_review_finding_status(
+        document_id, finding_index, payload.status
+    )
 
     if not updated_finding:
         raise HTTPException(status_code=404, detail="Contract or finding not found.")
@@ -463,7 +487,9 @@ def update_contract_finding_status(document_id: str, finding_index: int, payload
 
 
 @app.patch("/contracts/{document_id}/findings/{finding_index}/note")
-def update_contract_finding_note(document_id: str, finding_index: int, payload: FindingNoteUpdate):
+def update_contract_finding_note(
+    document_id: str, finding_index: int, payload: FindingNoteUpdate
+):
     store = InsightStore()
     updated_finding = store.update_review_finding_note(
         document_id,
@@ -494,7 +520,7 @@ def export_contract_report(document_id: str):
     import io
 
     doc = Document()
-    
+
     # Title
     title = doc.add_heading(f"Contract Review Report: {document_id}", 0)
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -503,13 +529,15 @@ def export_contract_report(document_id: str):
     profile = data.get("contract_profile", {})
     doc.add_heading("Contract Overview", level=1)
     table = doc.add_table(rows=0, cols=2)
-    
+
     def add_row(label, value):
         row = table.add_row().cells
         row[0].text = label
         row[1].text = str(value or "N/A")
 
-    add_row("Document Type", profile.get("document_type", "N/A").replace("_", " ").title())
+    add_row(
+        "Document Type", profile.get("document_type", "N/A").replace("_", " ").title()
+    )
     add_row("Effective Date", profile.get("effective_date"))
     add_row("Governing Law", profile.get("governing_law"))
     add_row("Term Length", profile.get("term_length"))
@@ -524,21 +552,23 @@ def export_contract_report(document_id: str):
             run = p.add_run(f"{finding.get('title', 'Untitled Finding')}")
             run.bold = True
             run.font.size = Pt(12)
-            
+
             p = doc.add_paragraph()
-            p.add_run(f"Type: {finding.get('finding_type', 'N/A').replace('_', ' ').title()} | ")
-            sev = finding.get('severity', 'N/A').upper()
+            p.add_run(
+                f"Type: {finding.get('finding_type', 'N/A').replace('_', ' ').title()} | "
+            )
+            sev = finding.get("severity", "N/A").upper()
             run_sev = p.add_run(f"Severity: {sev}")
-            if sev == 'HIGH':
+            if sev == "HIGH":
                 run_sev.font.color.rgb = RGBColor(200, 0, 0)
-            
+
             doc.add_paragraph(finding.get("explanation", "No explanation provided."))
-            
+
             if finding.get("source_quotes"):
                 doc.add_paragraph("Source Quotes:")
                 for quote in finding["source_quotes"]:
-                    doc.add_paragraph(f'"{quote}"', style='List Bullet')
-            
+                    doc.add_paragraph(f'"{quote}"', style="List Bullet")
+
             doc.add_paragraph("-" * 30)
 
     # Clause Inventory
@@ -546,8 +576,10 @@ def export_contract_report(document_id: str):
     if clauses:
         doc.add_heading("Clause Inventory", level=1)
         for clause in clauses:
-            p = doc.add_paragraph(style='Heading 2')
-            p.add_run(f"{clause.get('title')} (Page {clause.get('page_number', 'N/A')})")
+            p = doc.add_paragraph(style="Heading 2")
+            p.add_run(
+                f"{clause.get('title')} (Page {clause.get('page_number', 'N/A')})"
+            )
             doc.add_paragraph(clause.get("clause_text", ""))
 
     # Save to buffer
@@ -558,6 +590,7 @@ def export_contract_report(document_id: str):
     return StreamingResponse(
         target,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        headers={"Content-Disposition": f"attachment; filename=RagForge_Report_{document_id.replace(' ', '_')}.docx"}
+        headers={
+            "Content-Disposition": f"attachment; filename=RagForge_Report_{document_id.replace(' ', '_')}.docx"
+        },
     )
-

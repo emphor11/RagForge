@@ -1,8 +1,21 @@
 import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
-
 import { API_BASE_URL } from "../config";
 import DocumentViewer from "../components/DocumentViewer";
+import {
+  AlertTriangle,
+  Download,
+  Check,
+  X,
+  MoreHorizontal,
+  ArrowUpRight,
+  MessageSquare,
+  Copy,
+  Info,
+  Shield,
+  ChevronDown,
+  ChevronRight,
+} from "lucide-react";
 
 const DocumentAnalysis = () => {
   const { id } = useParams();
@@ -19,13 +32,15 @@ const DocumentAnalysis = () => {
   const [query, setQuery] = useState("");
   const [queryResult, setQueryResult] = useState(null);
   const [queryLoading, setQueryLoading] = useState(false);
-  const [showReasoning, setShowReasoning] = useState(false);
   const [showSupplementalAnalysis, setShowSupplementalAnalysis] = useState(false);
   const [updatingFindingIndex, setUpdatingFindingIndex] = useState(null);
   const [findingFilter, setFindingFilter] = useState("all");
   const [reviewerNotes, setReviewerNotes] = useState({});
   const [savingNoteIndex, setSavingNoteIndex] = useState(null);
-  
+  const [expandedFindings, setExpandedFindings] = useState({});
+  const [overflowOpen, setOverflowOpen] = useState(null);
+  const [expandedClauses, setExpandedClauses] = useState({});
+
   const [rawText, setRawText] = useState("");
   const [activeQuote, setActiveQuote] = useState(null);
 
@@ -35,36 +50,32 @@ const DocumentAnalysis = () => {
     setQuery("");
   }, [id]);
 
+  // Close overflow on outside click
+  useEffect(() => {
+    const handler = () => setOverflowOpen(null);
+    document.addEventListener("click", handler);
+    return () => document.removeEventListener("click", handler);
+  }, []);
+
   const normalizeResult = (data) => {
-    // If the backend returns the nested format: { insights: {...}, evaluation: {...} }
-    // we extract the insights first, and could optionally use evaluation elsewhere.
     const realData = data.insights || data;
-    
-    // Handle legacy confidence score field name
     const overall_confidence = realData.overall_confidence ?? realData.confidence_score ?? 0;
-    
-    // Normalize key_insights (from strings to objects)
-    const key_insights = (realData.key_insights || []).map(item => {
-      if (typeof item === 'string') {
+    const key_insights = (realData.key_insights || []).map((item) => {
+      if (typeof item === "string") {
         return { insight: item, source: "Legacy analysis - no source quote available", confidence: overall_confidence };
       }
       return item;
     });
-
-    // Normalize risks
-    const risks = (realData.risks || []).map(r => ({
+    const risks = (realData.risks || []).map((r) => ({
       ...r,
       source: r.source || "Legacy analysis",
-      confidence: r.confidence ?? overall_confidence
+      confidence: r.confidence ?? overall_confidence,
     }));
-
-    // Normalize actions
-    const recommended_actions = (realData.recommended_actions || []).map(a => ({
+    const recommended_actions = (realData.recommended_actions || []).map((a) => ({
       ...a,
       source: a.source || "Legacy analysis",
-      confidence: a.confidence ?? overall_confidence
+      confidence: a.confidence ?? overall_confidence,
     }));
-
     return {
       ...realData,
       overall_confidence,
@@ -73,7 +84,7 @@ const DocumentAnalysis = () => {
       recommended_actions,
       reasoning: realData.reasoning || "Reasoning not available for legacy analysis.",
       context_quality: realData.context_quality || "full",
-      evaluation: data.evaluation || null // Pass the evaluation if it exists
+      evaluation: data.evaluation || null,
     };
   };
 
@@ -86,30 +97,24 @@ const DocumentAnalysis = () => {
         fetch(`${API_BASE_URL}/contracts/${encodeURIComponent(document_id)}/overview`),
         fetch(`${API_BASE_URL}/contracts/${encodeURIComponent(document_id)}/clauses`),
         fetch(`${API_BASE_URL}/contracts/${encodeURIComponent(document_id)}/risks`),
-        fetch(`${API_BASE_URL}/contracts/${encodeURIComponent(document_id)}/review-audit`)
+        fetch(`${API_BASE_URL}/contracts/${encodeURIComponent(document_id)}/review-audit`),
       ]);
 
       if (!insightsRes.ok) throw new Error("Document analysis not found");
-
       const data = await insightsRes.json();
       if (!data || data.error) throw new Error("Document analysis not found");
 
       if (overviewRes.ok) {
-        const overviewData = await overviewRes.json();
-        setContractProfile(overviewData);
-      } else if (overviewRes.status === 404) {
-        setContractProfile(null);
+        setContractProfile(await overviewRes.json());
       } else {
-        throw new Error("Failed to load contract overview");
+        setContractProfile(null);
       }
 
       if (clausesRes.ok) {
         const clausesData = await clausesRes.json();
         setContractClauses(clausesData.clauses || []);
-      } else if (clausesRes.status === 404) {
-        setContractClauses([]);
       } else {
-        throw new Error("Failed to load contract clauses");
+        setContractClauses([]);
       }
 
       if (risksRes.ok) {
@@ -120,20 +125,15 @@ const DocumentAnalysis = () => {
             (risksData.findings || []).map((finding, idx) => [idx, finding.reviewer_note || ""])
           )
         );
-      } else if (risksRes.status === 404) {
+      } else {
         setContractFindings([]);
         setReviewerNotes({});
-      } else {
-        throw new Error("Failed to load contract findings");
       }
 
       if (auditRes.ok) {
-        const auditData = await auditRes.json();
-        setContractReviewAudit(auditData);
-      } else if (auditRes.status === 404) {
-        setContractReviewAudit(null);
+        setContractReviewAudit(await auditRes.json());
       } else {
-        throw new Error("Failed to load contract review audit");
+        setContractReviewAudit(null);
       }
 
       setResult(normalizeResult(data));
@@ -153,24 +153,15 @@ const DocumentAnalysis = () => {
 
   const handleQuery = async () => {
     if (!query || queryLoading) return;
-
     setQueryLoading(true);
     try {
       const res = await fetch(`${API_BASE_URL}/query`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          query,
-          document_id: document_id, 
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, document_id }),
       });
-
       if (!res.ok) throw new Error("Query failed");
-
-      const data = await res.json();
-      setQueryResult(data);
+      setQueryResult(await res.json());
     } catch (err) {
       console.error(err);
       setError("Failed to get answer from AI");
@@ -181,27 +172,20 @@ const DocumentAnalysis = () => {
 
   const handleFindingStatusUpdate = async (findingIndex, status) => {
     if (updatingFindingIndex !== null) return;
-
     setUpdatingFindingIndex(findingIndex);
     try {
       const res = await fetch(
         `${API_BASE_URL}/contracts/${encodeURIComponent(document_id)}/findings/${findingIndex}/audit`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ status }),
         }
       );
-
       if (!res.ok) throw new Error("Failed to update finding status");
-
       const data = await res.json();
       setContractFindings((current) =>
-        current.map((finding, idx) =>
-          idx === findingIndex ? data.finding : finding
-        )
+        current.map((finding, idx) => (idx === findingIndex ? data.finding : finding))
       );
     } catch (err) {
       console.error(err);
@@ -213,27 +197,20 @@ const DocumentAnalysis = () => {
 
   const handleReviewerNoteSave = async (findingIndex) => {
     if (savingNoteIndex !== null) return;
-
     setSavingNoteIndex(findingIndex);
     try {
       const res = await fetch(
         `${API_BASE_URL}/contracts/${encodeURIComponent(document_id)}/findings/${findingIndex}/audit`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ reviewer_note: reviewerNotes[findingIndex] || "" }),
         }
       );
-
       if (!res.ok) throw new Error("Failed to save reviewer note");
-
       const data = await res.json();
       setContractFindings((current) =>
-        current.map((finding, idx) =>
-          idx === findingIndex ? data.finding : finding
-        )
+        current.map((finding, idx) => (idx === findingIndex ? data.finding : finding))
       );
     } catch (err) {
       console.error(err);
@@ -244,8 +221,7 @@ const DocumentAnalysis = () => {
   };
 
   const handleExportReport = () => {
-    // Direct link to download
-    window.open(`${API_BASE_URL}/export/${encodeURIComponent(document_id)}`, '_blank');
+    window.open(`${API_BASE_URL}/export/${encodeURIComponent(document_id)}`, "_blank");
   };
 
   const getSeverityLabel = (severity) => {
@@ -255,911 +231,757 @@ const DocumentAnalysis = () => {
     return "Minor Risk";
   };
 
-  const renderConfidence = (val) => {
-    const pct = (val * 100).toFixed(0);
-    const isLow = val < 0.82;
-    
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
-        {isLow && (
-          <span style={{ 
-            fontSize: '9px', 
-            fontWeight: '800', 
-            padding: '2px 6px', 
-            borderRadius: '4px', 
-            background: 'var(--danger)', 
-            color: '#fff',
-            textTransform: 'uppercase'
-          }}>
-            Low Confidence
-          </span>
-        )}
-        <span style={{ 
-          color: isLow ? 'var(--danger)' : 'var(--warning)', 
-          fontSize: '11px', 
-          fontWeight: '700', 
-          background: 'rgba(0,0,0,0.03)', 
-          padding: '2px 6px', 
-          borderRadius: '4px' 
-        }}>
-          {pct}% Grounded
-        </span>
-      </div>
-    );
+  const getSeverityClass = (severity) => {
+    const s = severity?.toLowerCase();
+    if (s === "high") return "high";
+    if (s === "medium") return "medium";
+    return "low";
   };
 
   const formatDocumentType = (value) => {
     if (!value) return "Unknown";
-    return value
-      .split("_")
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(" ");
+    return value.split("_").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
   };
 
   const formatClauseType = (value) => {
     if (!value) return "Unclassified";
-    return value
-      .split("_")
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(" ");
+    return value.split("_").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
   };
 
   const formatFindingType = (value) => {
     if (!value) return "Finding";
-    return value
-      .split("_")
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(" ");
+    return value.split("_").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
   };
 
-  const queryPlaceholder = contractProfile
-    ? "e.g., What is the governing law? Is there a termination right? What does the confidentiality clause allow?"
-    : "e.g., Extract the step-by-step implementation plan from section 4.";
   const isContractReview = Boolean(contractProfile);
-  const filteredFindings = contractFindings.filter((finding) => (
+  const filteredFindings = contractFindings.filter((finding) =>
     findingFilter === "all" ? true : (finding.status || "open") === findingFilter
-  ));
+  );
+  const riskFindings = filteredFindings.filter((f) => f.finding_type !== "missing_protection");
+  const missingProtections = filteredFindings.filter((f) => f.finding_type === "missing_protection");
 
-  const riskFindings = filteredFindings.filter(f => f.finding_type !== 'missing_protection');
-  const missingProtections = filteredFindings.filter(f => f.finding_type === 'missing_protection');
   const findingCounts = {
     all: contractFindings.length,
-    open: contractFindings.filter((finding) => (finding.status || "open") === "open").length,
-    accepted: contractFindings.filter((finding) => finding.status === "accepted").length,
-    dismissed: contractFindings.filter((finding) => finding.status === "dismissed").length,
-    escalated: contractFindings.filter((finding) => finding.status === "escalated").length,
+    open: contractFindings.filter((f) => (f.status || "open") === "open").length,
+    accepted: contractFindings.filter((f) => f.status === "accepted").length,
+    dismissed: contractFindings.filter((f) => f.status === "dismissed").length,
+    escalated: contractFindings.filter((f) => f.status === "escalated").length,
   };
-  const severityCounts = {
-    high: contractFindings.filter((finding) => finding.severity === "high").length,
-    medium: contractFindings.filter((finding) => finding.severity === "medium").length,
-    low: contractFindings.filter((finding) => finding.severity === "low").length,
+
+  const clauseStatusCounts = {
+    present: contractClauses.filter((c) => c.clause_text || c.text_preview).length,
+    missing: contractClauses.filter((c) => !c.clause_text && !c.text_preview).length,
   };
-  const typeCounts = {
-    risk: contractFindings.filter((finding) => finding.finding_type === "risk").length,
-    missing_protection: contractFindings.filter((finding) => finding.finding_type === "missing_protection").length,
-    negotiation_point: contractFindings.filter((finding) => finding.finding_type === "negotiation_point").length,
-  };
+
+  // Review audit score
+  const auditScore = contractReviewAudit?.score ?? (result?.evaluation?.score || 0);
+  const auditStatus = contractReviewAudit?.status || result?.evaluation?.status || "pass";
 
   if (loading) {
     return (
       <div className="empty-state">
-        <span className="spinner" style={{ marginBottom: '20px' }}></span>
+        <span className="spinner spinner-lg" style={{ marginBottom: "16px" }} />
         <div className="empty-state-title">Analyzing "{document_id}"</div>
-        <div className="empty-state-desc">Running deep intelligence extraction...</div>
+        <div className="empty-state-desc">Running deep intelligence extraction…</div>
       </div>
     );
   }
 
-  if (error) {
+  if (error && !result) {
     return (
       <div className="empty-state">
-        <div className="empty-state-icon">⚠️</div>
+        <div className="empty-state-icon"><AlertTriangle /></div>
         <div className="empty-state-title">Something went wrong</div>
         <div className="empty-state-desc">{error}</div>
-        <button className="sidebar-upgrade-btn" onClick={loadDocumentInsights} style={{ marginTop: '20px' }}>Retry Analysis</button>
+        <button className="btn btn-primary" onClick={loadDocumentInsights} style={{ marginTop: "16px" }}>
+          Retry Analysis
+        </button>
       </div>
     );
   }
+
+  /* ============================
+     RENDER: Finding Card
+     ============================ */
+  const renderFindingCard = (finding, idx, isMissing = false) => {
+    const sev = getSeverityClass(finding.severity);
+    const isExpanded = expandedFindings[idx];
+
+    return (
+      <div key={`${finding.title}-${idx}`} className={`finding-card severity-${sev}`}>
+        {/* Header */}
+        <div className="finding-header">
+          <div className="finding-title-group">
+            <span className={`badge badge-${sev}`}>{getSeverityLabel(finding.severity)}</span>
+            <span className="finding-title">{finding.title}</span>
+          </div>
+          <div className="finding-badges">
+            <span className="badge badge-neutral">{formatFindingType(finding.finding_type)}</span>
+            {finding.status && finding.status !== "open" && (
+              <span className="badge badge-info">{formatDocumentType(finding.status)}</span>
+            )}
+          </div>
+        </div>
+
+        {/* Description */}
+        <div
+          className={`finding-description ${isExpanded ? "expanded" : ""}`}
+          onClick={() => setExpandedFindings((prev) => ({ ...prev, [idx]: !prev[idx] }))}
+          style={{ cursor: "pointer" }}
+        >
+          {finding.explanation}
+        </div>
+
+        {/* Clause type badge */}
+        {finding.clause_type && (
+          <div style={{ marginBottom: "8px" }}>
+            <span className="badge badge-neutral" style={{ fontSize: "11px" }}>
+              {formatClauseType(finding.clause_type)}
+            </span>
+          </div>
+        )}
+
+        {/* Source quotes */}
+        {finding.source_quotes?.map((quote, quoteIdx) => (
+          <div
+            key={quoteIdx}
+            className="source-quote"
+            onClick={() => setActiveQuote(quote)}
+            title="Click to verify in source document"
+          >
+            "{quote}"
+          </div>
+        ))}
+
+        {/* Mitigation */}
+        {finding.mitigation_fix && (
+          <div className={`mitigation-box ${isMissing ? "warning" : ""}`}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span className={`mitigation-label ${isMissing ? "warning" : "success"}`}>
+                {isMissing ? "Suggested Mitigation Language" : "Suggested Drafting Fix"}
+              </span>
+              <button
+                className="mitigation-copy"
+                onClick={() => {
+                  navigator.clipboard.writeText(finding.mitigation_fix);
+                }}
+              >
+                <Copy /> Copy
+              </button>
+            </div>
+            <p className="mitigation-text">{finding.mitigation_fix}</p>
+          </div>
+        )}
+
+        {/* Actions Row */}
+        <div className="finding-actions">
+          <button
+            className="btn btn-primary btn-sm"
+            disabled={updatingFindingIndex === idx}
+            onClick={() => handleFindingStatusUpdate(idx, "accepted")}
+          >
+            <Check /> Accept
+          </button>
+          <button
+            className="btn btn-ghost btn-sm"
+            disabled={updatingFindingIndex === idx}
+            onClick={() => handleFindingStatusUpdate(idx, "dismissed")}
+          >
+            Dismiss
+          </button>
+          <div className="overflow-menu" onClick={(e) => e.stopPropagation()}>
+            <button
+              className="overflow-trigger"
+              onClick={() => setOverflowOpen(overflowOpen === idx ? null : idx)}
+            >
+              ···
+            </button>
+            {overflowOpen === idx && (
+              <div className="overflow-dropdown">
+                <button onClick={() => { handleFindingStatusUpdate(idx, "negotiate"); setOverflowOpen(null); }}>
+                  <MessageSquare /> Negotiate
+                </button>
+                <button onClick={() => { handleFindingStatusUpdate(idx, "escalated"); setOverflowOpen(null); }}>
+                  <ArrowUpRight /> Escalate
+                </button>
+              </div>
+            )}
+          </div>
+          <div style={{ flex: 1 }} />
+          <span className="finding-confidence">
+            Grounded: {(finding.confidence * 100).toFixed(0)}%
+          </span>
+        </div>
+
+        {/* Reviewer Note */}
+        <div className="reviewer-note-area">
+          <textarea
+            value={reviewerNotes[idx] || ""}
+            onChange={(e) =>
+              setReviewerNotes((current) => ({ ...current, [idx]: e.target.value }))
+            }
+            placeholder="Add review note…"
+            rows={2}
+          />
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "6px" }}>
+            <button
+              className="btn btn-secondary btn-sm"
+              disabled={savingNoteIndex === idx}
+              onClick={() => handleReviewerNoteSave(idx)}
+            >
+              {savingNoteIndex === idx ? "…" : "Save Note"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  /* ============================
+     RENDER: Progress Ring
+     ============================ */
+  const renderProgressRing = (value, size = 64, stroke = 5) => {
+    const radius = (size - stroke) / 2;
+    const circumference = 2 * Math.PI * radius;
+    const offset = circumference - (value / 100) * circumference;
+    const color = value >= 80 ? "var(--success)" : value >= 50 ? "var(--warning)" : "var(--danger)";
+
+    return (
+      <div className="progress-ring" style={{ width: size, height: size }}>
+        <svg width={size} height={size}>
+          <circle className="progress-ring-bg" cx={size / 2} cy={size / 2} r={radius} strokeWidth={stroke} />
+          <circle
+            className="progress-ring-fill"
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            strokeWidth={stroke}
+            stroke={color}
+            strokeDasharray={circumference}
+            strokeDashoffset={offset}
+            strokeLinecap="round"
+          />
+        </svg>
+        <span className="progress-ring-text" style={{ fontSize: "16px" }}>{value}%</span>
+      </div>
+    );
+  };
 
   return (
     <div className="analysis-page">
-      {/* ===== SYSTEM STATUS & QUALITY ===== */}
+      {error && (
+        <div className="error-banner">
+          <AlertTriangle /> {error}
+        </div>
+      )}
+
+      {/* ===== CONTEXT WARNING (inline notice inside overview) ===== */}
       {result.context_quality && result.context_quality !== "full" && (
-        <div className={`quality-banner ${result.context_quality}`}>
-          <div className="quality-banner-icon">⚠️</div>
-          <div className="quality-banner-content">
-            <strong>Context Warning: {result.context_quality.toUpperCase()}</strong>
-            <p>{result.context_gap || "The document context may not fully support all generated insights."}</p>
-          </div>
+        <div className="context-notice">
+          <Info />
+          <span className="context-notice-text">
+            <strong>Partial context:</strong> {result.context_gap || "The document context may not fully support all generated insights."}
+          </span>
         </div>
       )}
 
       {/* ===== STATS ROW ===== */}
-      <div className="stats-row" style={{ marginBottom: '20px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+      <div className="stats-row">
         <div className="stat-card">
-          <div className="stat-icon icon-bg-blue">📄</div>
-          <div className="stat-value" style={{ fontSize: '14px', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>{document_id}</div>
-          <div className="stat-label">{isContractReview ? "Analyzed Agreement" : "Analyzing File"}</div>
+          <div className="stat-label">
+            {isContractReview ? "Analyzed Agreement" : "Analyzing File"}
+          </div>
+          <div className="stat-value-sm">{document_id}</div>
         </div>
         <div className="stat-card">
-          <div className="stat-icon icon-bg-green">📈</div>
-          <div className="stat-value">{isContractReview ? contractFindings.length : (result.key_insights?.length || 0)}</div>
-          <div className="stat-label">{isContractReview ? "Review Findings" : "Grounded Insights"}</div>
+          <div className="stat-label">
+            {isContractReview ? "Review Findings" : "Grounded Insights"}
+          </div>
+          <div className="stat-value">
+            {isContractReview ? contractFindings.length : (result.key_insights?.length || 0)}
+          </div>
         </div>
         <div className="stat-card">
-          <div className="stat-icon icon-bg-orange">⏱️</div>
+          <div className="stat-label">
+            {isContractReview ? "Clauses Indexed" : "Avg Grounding"}
+          </div>
           <div className="stat-value">
             {isContractReview
-              ? `${contractClauses.length}`
+              ? contractClauses.length
               : `${(result.overall_confidence * 100).toFixed(0)}%`}
           </div>
-          <div className="stat-label">{isContractReview ? "Clauses Indexed" : "Avg Grounding Score"}</div>
         </div>
         <div className="stat-card">
-          <div className="stat-icon icon-bg-purple">🛡️</div>
-          <div className="stat-value">
-            {isContractReview
-              ? `${contractReviewAudit?.score ?? 0}%`
-              : `${result.evaluation?.score || 0}%`}
+          <div className="stat-label">Review Audit</div>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            {renderProgressRing(auditScore, 52, 4)}
           </div>
-          <div className="stat-label">{isContractReview ? "Review Audit" : "Intelligence Quality"}</div>
         </div>
       </div>
 
       {/* ===== ACTIONS ROW ===== */}
       {isContractReview && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '20px', gap: '12px' }}>
-          <button
-            onClick={handleExportReport}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '10px 20px',
-              borderRadius: '12px',
-              background: 'var(--accent-primary)',
-              color: 'white',
-              border: 'none',
-              fontWeight: '600',
-              fontSize: '14px',
-              cursor: 'pointer',
-              boxShadow: '0 4px 12px rgba(37, 99, 235, 0.2)'
-            }}
-          >
-            <span>📥</span> Export Review Report (.docx)
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "20px", gap: "8px" }}>
+          {isContractReview && result && (
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => setShowSupplementalAnalysis(!showSupplementalAnalysis)}
+            >
+              {showSupplementalAnalysis ? "Hide" : "Show"} AI Research Notes
+            </button>
+          )}
+          <button className="btn btn-primary" onClick={handleExportReport}>
+            <Download /> Export Report
           </button>
         </div>
       )}
 
       {/* ===== CONTRACT OVERVIEW ===== */}
       {contractProfile && (
-        <div className="card" style={{ marginBottom: '20px' }}>
+        <div className="card" style={{ marginBottom: "var(--section-gap)" }}>
           <div className="card-header">
-            <div className="card-title">
-              <div className="card-title-icon icon-bg-blue">⚖️</div>
-              Contract Overview
-            </div>
+            <div className="card-title">Contract Overview</div>
           </div>
           <div className="card-body">
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '16px' }}>
+
+            {/* Inline context warning */}
+            {result.context_quality && result.context_quality !== "full" && (
+              <div className="context-notice" style={{ marginBottom: "16px" }}>
+                <Info />
+                <span className="context-notice-text">
+                  {result.context_gap || "The document context may be incomplete."}
+                </span>
+              </div>
+            )}
+
+            <div className="overview-grid">
               <div>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Document Type</div>
-                <div style={{ fontWeight: '600' }}>{formatDocumentType(contractProfile.document_type)}</div>
+                <div className="overview-field-label">Document Type</div>
+                <div className="overview-field-value">{formatDocumentType(contractProfile.document_type)}</div>
               </div>
               <div>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Classification Confidence</div>
-                <div style={{ fontWeight: '600' }}>{((contractProfile.classification_confidence || 0) * 100).toFixed(0)}%</div>
+                <div className="overview-field-label">Classification Confidence</div>
+                <div className="overview-field-value">{((contractProfile.classification_confidence || 0) * 100).toFixed(0)}%</div>
               </div>
               <div>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Effective Date</div>
-                <div style={{ fontWeight: '600' }}>{contractProfile.effective_date || "Not detected"}</div>
+                <div className="overview-field-label">Effective Date</div>
+                <div className="overview-field-value">{contractProfile.effective_date || "Not detected"}</div>
               </div>
               <div>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Governing Law</div>
-                <div style={{ fontWeight: '600' }}>{contractProfile.governing_law || "Not detected"}</div>
+                <div className="overview-field-label">Governing Law</div>
+                <div className="overview-field-value">{contractProfile.governing_law || "Not detected"}</div>
               </div>
               <div>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Term Length</div>
-                <div style={{ fontWeight: '600' }}>{contractProfile.term_length || "Not detected"}</div>
+                <div className="overview-field-label">Term Length</div>
+                <div className="overview-field-value">{contractProfile.term_length || "Not detected"}</div>
               </div>
               <div>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Renewal Mechanics</div>
-                <div style={{ fontWeight: '600' }}>{contractProfile.renewal_mechanics || "Not detected"}</div>
+                <div className="overview-field-label">Renewal Mechanics</div>
+                <div className="overview-field-value">{contractProfile.renewal_mechanics || "Not detected"}</div>
               </div>
             </div>
 
-            <div style={{ marginTop: '18px' }}>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '8px' }}>Parties</div>
+            <div style={{ marginTop: "16px" }}>
+              <div className="overview-field-label">Parties</div>
               {contractProfile.parties?.length ? (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "6px" }}>
                   {contractProfile.parties.map((party, idx) => (
-                    <span
-                      key={`${party}-${idx}`}
-                      style={{
-                        padding: '8px 12px',
-                        borderRadius: '999px',
-                        background: 'rgba(37, 99, 235, 0.12)',
-                        border: '1px solid rgba(37, 99, 235, 0.2)',
-                        color: 'var(--text-primary)',
-                        fontSize: '13px',
-                        fontWeight: '500'
-                      }}
-                    >
-                      {party}
-                    </span>
+                    <span key={`${party}-${idx}`} className="party-tag">{party}</span>
                   ))}
                 </div>
               ) : (
-                <div style={{ fontWeight: '600' }}>Not detected</div>
+                <div className="overview-field-value">Not detected</div>
               )}
             </div>
           </div>
         </div>
       )}
 
-      {/* ===== 1. CONTRACT REVIEW FINDINGS (PRIORITY 1) ===== */}
+      {/* ===== REVIEW FINDINGS ===== */}
       {contractFindings.length > 0 && (
-        <div className="card" style={{ marginBottom: '20px' }}>
-          <div className="card-header">
-            <div className="card-title">
-              <div className="card-title-icon icon-bg-red">⚠️</div>
-              Contract Review Findings
+        <div style={{ marginBottom: "var(--section-gap)" }}>
+          <div className="card" style={{ marginBottom: "var(--section-gap)" }}>
+            <div className="card-header">
+              <div className="card-title">Contract Review Findings</div>
+              <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>
+                {contractFindings.length} total
+              </span>
             </div>
-          </div>
-          <div className="card-body">
-            {/* Findings stats and list will go here - keeping it simple for now to move the block */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '12px', marginBottom: '16px' }}>
-              <div style={{ border: '1px solid rgba(239, 68, 68, 0.2)', background: 'rgba(239, 68, 68, 0.08)', borderRadius: '12px', padding: '14px' }}>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Severity Mix</div>
-                <div style={{ fontWeight: '600', lineHeight: 1.7 }}>
-                  High: {severityCounts.high} · Medium: {severityCounts.medium} · Low: {severityCounts.low}
-                </div>
-              </div>
-              <div style={{ border: '1px solid rgba(59, 130, 246, 0.2)', background: 'rgba(59, 130, 246, 0.08)', borderRadius: '12px', padding: '14px' }}>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Finding Types</div>
-                <div style={{ fontWeight: '600', lineHeight: 1.7 }}>
-                  Risks: {typeCounts.risk} · Missing: {typeCounts.missing_protection} · Negotiation: {typeCounts.negotiation_point}
-                </div>
-              </div>
-              <div style={{ border: '1px solid rgba(16, 185, 129, 0.2)', background: 'rgba(16, 185, 129, 0.08)', borderRadius: '12px', padding: '14px' }}>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>Reviewer Progress</div>
-                <div style={{ fontWeight: '600', lineHeight: 1.7 }}>
-                  Open: {findingCounts.open} · Accepted: {findingCounts.accepted} · Escalated: {findingCounts.escalated}
-                </div>
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px' }}>
-              {[
-                ["all", "All"],
-                ["open", "Open"],
-                ["accepted", "Accepted"],
-                ["dismissed", "Dismissed"],
-                ["escalated", "Escalated"],
-              ].map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => setFindingFilter(value)}
-                  style={{
-                    padding: '8px 12px',
-                    borderRadius: '999px',
-                    border: '1px solid var(--border-color)',
-                    background: findingFilter === value ? 'rgba(59, 130, 246, 0.16)' : 'rgba(255,255,255,0.03)',
-                    color: 'var(--text-primary)',
-                    fontSize: '12px',
-                    fontWeight: '600',
-                    cursor: 'pointer'
-                  }}
-                >
-                  {label} ({findingCounts[value]})
-                </button>
-              ))}
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '20px' }}>
-              {/* --- RISK FINDINGS SUBSECTION --- */}
-              <div>
-                <h3 style={{ fontSize: '14px', marginBottom: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--danger)' }}></span>
-                  Risk Findings ({riskFindings.length})
-                </h3>
-                {riskFindings.length > 0 ? (
-                  <ul className="risk-list">
-                    {riskFindings.map((finding) => {
-                      const idx = contractFindings.indexOf(finding);
-                      return (
-                      <li key={`${finding.title}-${idx}`} className="risk-item-complex">
-                        <div className="risk-header">
-                          <div className="risk-title-row">
-                            <span className={`risk-dot ${finding.severity?.toLowerCase()}`}></span>
-                            <strong>{finding.title}</strong>
-                          </div>
-                          <span className={`risk-badge ${finding.severity?.toLowerCase()}`}>
-                            {getSeverityLabel(finding.severity)}
-                          </span>
-                        </div>
-                        <p className="risk-reason">{finding.explanation}</p>
-                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
-                          <span
-                            style={{
-                              fontSize: '11px',
-                              fontWeight: '600',
-                              padding: '4px 8px',
-                              borderRadius: '999px',
-                              background: 'rgba(59, 130, 246, 0.12)',
-                              border: '1px solid rgba(59, 130, 246, 0.2)',
-                              color: 'var(--text-primary)'
-                            }}
-                          >
-                            {formatClauseType(finding.clause_type)}
-                          </span>
-                          {finding.status && (
-                            <span
-                              style={{
-                                fontSize: '11px',
-                                fontWeight: '600',
-                                padding: '4px 8px',
-                                borderRadius: '999px',
-                                background: 'rgba(16, 185, 129, 0.12)',
-                                border: '1px solid rgba(16, 185, 129, 0.2)',
-                                color: 'var(--text-secondary)'
-                              }}
-                            >
-                              {formatDocumentType(finding.status)}
-                            </span>
-                          )}
-                        </div>
-                        {finding.source_quotes?.map((quote, quoteIdx) => (
-                          <blockquote 
-                            key={quoteIdx} 
-                            className="source-quote"
-                            style={{ cursor: 'pointer' }}
-                            onClick={() => setActiveQuote(quote)}
-                            title="Click to locate and verify this exact wording in the source document"
-                          >
-                            "{quote}"
-                          </blockquote>
-                        ))}
-                        
-                        {/* Phase 3: Mitigation Suggestion */}
-                        {finding.mitigation_fix && (
-                          <div style={{ 
-                            marginTop: '12px', 
-                            padding: '12px', 
-                            background: 'rgba(16, 185, 129, 0.05)', 
-                            borderLeft: '3px solid var(--success)',
-                            borderRadius: '0 8px 8px 0'
-                          }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                              <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--success)', textTransform: 'uppercase' }}>
-                                Suggested Drafting Fix
-                              </span>
-                              <button 
-                                onClick={() => {
-                                  navigator.clipboard.writeText(finding.mitigation_fix);
-                                  alert("Drafting fix copied to clipboard!");
-                                }}
-                                style={{ 
-                                  fontSize: '10px', 
-                                  background: 'rgba(255,255,255,0.1)', 
-                                  border: 'none', 
-                                  color: 'var(--text-primary)',
-                                  padding: '2px 8px',
-                                  borderRadius: '4px',
-                                  cursor: 'pointer'
-                                }}
-                              >
-                                📋 Copy Fix
-                              </button>
-                            </div>
-                            <p style={{ fontSize: '12px', fontStyle: 'italic', color: 'var(--text-primary)', margin: 0, lineScale: '1.4' }}>
-                              {finding.mitigation_fix}
-                            </p>
-                          </div>
-                        )}
-                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '12px' }}>
-                          <button
-                            className="query-btn"
-                            style={{ padding: '8px 12px', minWidth: 'auto' }}
-                            disabled={updatingFindingIndex === idx}
-                            onClick={() => handleFindingStatusUpdate(idx, "accepted")}
-                          >
-                            Accept
-                          </button>
-                          <button
-                            className="query-btn"
-                            style={{ padding: '8px 12px', minWidth: 'auto', background: 'var(--warning)', color: '#000' }}
-                            disabled={updatingFindingIndex === idx}
-                            onClick={() => handleFindingStatusUpdate(idx, "negotiate")}
-                          >
-                            Negotiate
-                          </button>
-                          <button
-                            className="query-btn"
-                            style={{ padding: '8px 12px', minWidth: 'auto', background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
-                            disabled={updatingFindingIndex === idx}
-                            onClick={() => handleFindingStatusUpdate(idx, "dismissed")}
-                          >
-                            Dismiss
-                          </button>
-                          <button
-                            className="query-btn"
-                            style={{ padding: '8px 12px', minWidth: 'auto', background: 'var(--danger)' }}
-                            disabled={updatingFindingIndex === idx}
-                            onClick={() => handleFindingStatusUpdate(idx, "escalated")}
-                          >
-                            Escalate
-                          </button>
-                        </div>
-                        <div style={{ marginTop: '12px' }}>
-                          <textarea
-                            value={reviewerNotes[idx] || ""}
-                            onChange={(e) =>
-                              setReviewerNotes((current) => ({
-                                ...current,
-                                [idx]: e.target.value,
-                              }))
-                            }
-                            placeholder="Add review note..."
-                            rows={2}
-                            style={{
-                              width: '100%',
-                              borderRadius: '8px',
-                              border: '1px solid var(--border-color)',
-                              background: 'rgba(255,255,255,0.02)',
-                              color: 'var(--text-primary)',
-                              padding: '8px 10px',
-                              fontSize: '12px',
-                              resize: 'vertical',
-                              boxSizing: 'border-box'
-                            }}
-                          />
-                          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '6px' }}>
-                            <button
-                              className="query-btn"
-                              style={{ padding: '4px 10px', minWidth: 'auto', fontSize: '11px' }}
-                              disabled={savingNoteIndex === idx}
-                              onClick={() => handleReviewerNoteSave(idx)}
-                            >
-                              {savingNoteIndex === idx ? "..." : "Save Note"}
-                            </button>
-                          </div>
-                        </div>
-                        <div style={{ textAlign: 'right', marginTop: '4px' }}>
-                          {renderConfidence(finding.confidence)}
-                        </div>
-                      </li>
-                      );
-                    })}
-                  </ul>
-                ) : (
-                  <p style={{ fontSize: '13px', color: 'var(--text-muted)', padding: '10px 0' }}>No active risk findings for this filter.</p>
-                )}
+            <div className="card-body">
+              {/* Filter bar */}
+              <div className="filter-bar">
+                {[
+                  ["all", "All"],
+                  ["open", "Open"],
+                  ["accepted", "Accepted"],
+                  ["dismissed", "Dismissed"],
+                  ["escalated", "Escalated"],
+                ].map(([value, label]) => (
+                  <button
+                    key={value}
+                    className={`filter-btn ${findingFilter === value ? "active" : ""}`}
+                    onClick={() => setFindingFilter(value)}
+                  >
+                    {label} ({findingCounts[value]})
+                  </button>
+                ))}
               </div>
 
-              {/* --- MISSING PROTECTIONS SUBSECTION --- */}
-              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>
-                <h3 style={{ fontSize: '14px', marginBottom: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--warning)' }}></span>
-                  Missing Protections ({missingProtections.length})
-                </h3>
-                {missingProtections.length > 0 ? (
-                  <ul className="risk-list">
-                    {missingProtections.map((finding) => {
-                      const idx = contractFindings.indexOf(finding);
-                      return (
-                      <li key={`${finding.title}-${idx}`} className="risk-item-complex" style={{ borderLeft: '4px solid var(--warning)' }}>
-                        <div className="risk-header">
-                          <div className="risk-title-row">
-                            <strong>{finding.title}</strong>
-                          </div>
-                          <span className={`risk-badge ${finding.severity?.toLowerCase()}`}>
-                            {getSeverityLabel(finding.severity)}
-                          </span>
-                        </div>
-                        <p className="risk-reason">{finding.explanation}</p>
-                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
-                          <span style={{ fontSize: '11px', fontWeight: '600', padding: '4px 8px', borderRadius: '999px', background: 'rgba(217, 119, 6, 0.12)', border: '1px solid rgba(217, 119, 6, 0.2)', color: 'var(--text-primary)' }}>
-                            {formatClauseType(finding.clause_type)}
-                          </span>
-                        </div>
+              {/* Risk Findings */}
+              {riskFindings.length > 0 && (
+                <div style={{ marginBottom: "20px" }}>
+                  <div style={{
+                    fontSize: "13px",
+                    fontWeight: 500,
+                    color: "var(--text-muted)",
+                    marginBottom: "12px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px"
+                  }}>
+                    <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "var(--danger)" }} />
+                    Risk Findings ({riskFindings.length})
+                  </div>
+                  {riskFindings.map((finding) => {
+                    const idx = contractFindings.indexOf(finding);
+                    return renderFindingCard(finding, idx, false);
+                  })}
+                </div>
+              )}
 
-                        {/* Phase 3: Mitigation Suggestion for Missing Clauses */}
-                        {finding.mitigation_fix && (
-                          <div style={{ 
-                            marginTop: '12px', 
-                            padding: '12px', 
-                            background: 'rgba(217, 119, 6, 0.05)', 
-                            borderLeft: '3px solid var(--warning)',
-                            borderRadius: '0 8px 8px 0',
-                            marginBottom: '12px'
-                          }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                              <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--warning)', textTransform: 'uppercase' }}>
-                                Suggested Mitigation Language
-                              </span>
-                              <button 
-                                onClick={() => {
-                                  navigator.clipboard.writeText(finding.mitigation_fix);
-                                  alert("Mitigation language copied to clipboard!");
-                                }}
-                                style={{ 
-                                  fontSize: '10px', 
-                                  background: 'rgba(255,255,255,0.1)', 
-                                  border: 'none', 
-                                  color: 'var(--text-primary)',
-                                  padding: '2px 8px',
-                                  borderRadius: '4px',
-                                  cursor: 'pointer'
-                                }}
-                              >
-                                📋 Copy Fix
-                              </button>
-                            </div>
-                            <p style={{ fontSize: '12px', fontStyle: 'italic', color: 'var(--text-primary)', margin: 0, lineScale: '1.4' }}>
-                              {finding.mitigation_fix}
-                            </p>
-                          </div>
-                        )}
-                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '12px' }}>
-                          <button className="query-btn" style={{ padding: '8px 12px', minWidth: 'auto' }} onClick={() => handleFindingStatusUpdate(idx, "accepted")}>Accept</button>
-                          <button className="query-btn" style={{ padding: '8px 12px', minWidth: 'auto', background: 'var(--warning)', color: '#000' }} onClick={() => handleFindingStatusUpdate(idx, "negotiate")}>Add to Redline</button>
-                          <button className="query-btn" style={{ padding: '8px 12px', minWidth: 'auto', background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }} onClick={() => handleFindingStatusUpdate(idx, "dismissed")}>Dismiss</button>
-                        </div>
-                      </li>
-                      );
-                    })}
-                  </ul>
-                ) : (
-                  <p style={{ fontSize: '13px', color: 'var(--text-muted)', padding: '10px 0' }}>No missing protections identified.</p>
-                )}
-              </div>
+              {/* Missing Protections */}
+              {missingProtections.length > 0 && (
+                <div>
+                  <div style={{
+                    fontSize: "13px",
+                    fontWeight: 500,
+                    color: "var(--text-muted)",
+                    marginBottom: "12px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px"
+                  }}>
+                    <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "var(--warning)" }} />
+                    Missing Protections ({missingProtections.length})
+                  </div>
+                  {missingProtections.map((finding) => {
+                    const idx = contractFindings.indexOf(finding);
+                    return renderFindingCard(finding, idx, true);
+                  })}
+                </div>
+              )}
+
+              {filteredFindings.length === 0 && (
+                <p style={{ fontSize: "13px", color: "var(--text-muted)", padding: "12px 0" }}>
+                  No findings match this filter.
+                </p>
+              )}
             </div>
           </div>
         </div>
       )}
 
-      {/* ===== 2. CLAUSE INVENTORY (PRIORITY 2) ===== */}
+      {/* ===== CLAUSE INVENTORY ===== */}
       {contractClauses.length > 0 && (
-        <div className="card" style={{ marginBottom: '20px' }}>
+        <div className="card" style={{ marginBottom: "var(--section-gap)" }}>
           <div className="card-header">
-            <div className="card-title">
-              <div className="card-title-icon icon-bg-green">🧾</div>
-              Clause Inventory
-            </div>
+            <div className="card-title">Clause Inventory</div>
           </div>
           <div className="card-body">
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '12px' }}>
-              {contractClauses.map((clause, idx) => (
-                <div
-                  key={`${idx}-${clause.title}`}
-                  style={{
-                    border: '1px solid var(--border-color)',
-                    borderRadius: '12px',
-                    padding: '14px',
-                    background: 'rgba(255,255,255,0.02)'
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'start', justifyContent: 'space-between', gap: '10px', marginBottom: '8px' }}>
-                    <strong style={{ lineHeight: 1.4 }}>{clause.title}</strong>
-                    <span
-                      style={{
-                        fontSize: '11px',
-                        fontWeight: '600',
-                        padding: '4px 8px',
-                        borderRadius: '999px',
-                        background: 'rgba(16, 185, 129, 0.12)',
-                        border: '1px solid rgba(16, 185, 129, 0.2)',
-                        color: 'var(--text-primary)',
-                        whiteSpace: 'nowrap'
-                      }}
-                    >
-                      {formatClauseType(clause.type)}
+            <div className="clause-summary-bar">
+              {clauseStatusCounts.present} present · {clauseStatusCounts.missing} missing
+            </div>
+            {contractClauses.map((clause, idx) => {
+              const hasContent = clause.clause_text || clause.text_preview;
+              const status = hasContent ? "present" : "missing";
+              const isOpen = expandedClauses[idx];
+              return (
+                <div key={`${idx}-${clause.title}`}>
+                  <div
+                    className="clause-row"
+                    onClick={() => setExpandedClauses((prev) => ({ ...prev, [idx]: !prev[idx] }))}
+                  >
+                    <span style={{ color: "var(--text-muted)", width: "16px", display: "flex", alignItems: "center" }}>
+                      {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                     </span>
+                    <span className="clause-name">{clause.title}</span>
+                    <span className={`badge badge-${status}`}>
+                      {status === "present" ? "Present" : "Missing"}
+                    </span>
+                    <span className="clause-ref">Page {clause.page_number}</span>
                   </div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                    Page {clause.page_number}
-                  </div>
-                  {clause.text_preview && (
-                    <p style={{ margin: '10px 0 0 0', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                      {clause.text_preview}
-                      {clause.clause_text && clause.clause_text.length > clause.text_preview.length ? "..." : ""}
-                    </p>
+                  {isOpen && hasContent && (
+                    <div className="clause-expanded">
+                      {clause.text_preview || clause.clause_text}
+                    </div>
                   )}
                 </div>
-              ))}
-            </div>
+              );
+            })}
           </div>
         </div>
       )}
 
-      {result.evaluation && (!isContractReview || showSupplementalAnalysis) && (
-        <div className="card" style={{ marginBottom: '20px', borderLeft: `4px solid ${result.evaluation.status === 'pass' ? 'var(--success)' : 'var(--danger)'}` }}>
-          <div className="card-header">
-            <div className="card-title">
-              <div className="card-title-icon" style={{ background: result.evaluation.status === 'pass' ? 'var(--success-bg)' : 'var(--danger-bg)', color: result.evaluation.status === 'pass' ? 'var(--success)' : 'var(--danger)' }}>
-                {result.evaluation.status === 'pass' ? '✅' : '⚠️'}
+      {/* ===== ANALYSIS QUALITY CHECK ===== */}
+      {(contractReviewAudit || result.evaluation) && (
+        <div className={`quality-card ${auditStatus === "pass" ? "pass" : "fail"}`}>
+          <div className="quality-header">
+            <div>
+              <div className="card-title" style={{ marginBottom: "4px" }}>
+                <Shield size={16} />
+                Analysis Quality
               </div>
-              Analysis Quality Check
+              <span className={`badge ${auditStatus === "pass" ? "badge-low" : "badge-high"}`} style={{ textTransform: "uppercase" }}>
+                {auditStatus === "pass" ? "Verified" : "Review Required"}
+              </span>
             </div>
-            <div className={`risk-badge ${result.evaluation.status === 'pass' ? 'low' : 'high'}`} style={{ textTransform: 'uppercase' }}>
-              {result.evaluation.status === 'pass' ? 'VERIFIED' : 'REVIEW REQUIRED'}
-            </div>
+            <div className="quality-score">{auditScore}/100</div>
           </div>
-          <div className="card-body">
-            {result.evaluation.recommendation && (
-              <div style={{
-                padding: '12px',
-                borderRadius: '8px',
-                background: result.evaluation.status === 'pass' ? 'var(--success-bg)' : 'var(--danger-bg)',
-                border: `1px solid ${result.evaluation.status === 'pass' ? 'var(--success)' : 'var(--danger)'}`,
-                color: result.evaluation.status === 'pass' ? 'var(--success-dark)' : 'var(--danger-dark)',
-                fontSize: '14px',
-                fontWeight: '500',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px'
-              }}>
-                <span style={{ fontSize: '18px' }}>{result.evaluation.status === 'pass' ? '🛡️' : '🚫'}</span>
-                {result.evaluation.recommendation}
+
+          {contractReviewAudit?.grounding_score !== undefined && (
+            <div className="quality-metrics">
+              <div className="quality-metric">
+                <div className="quality-metric-value">{((contractReviewAudit.grounding_score || 0) * 100).toFixed(0)}%</div>
+                <div className="quality-metric-label">Grounding</div>
               </div>
-            )}
-          </div>
+              <div className="quality-metric">
+                <div className="quality-metric-value">{((contractReviewAudit.structure_score || 0) * 100).toFixed(0)}%</div>
+                <div className="quality-metric-label">Structure</div>
+              </div>
+              <div className="quality-metric">
+                <div className="quality-metric-value">{((contractReviewAudit.coverage_score || 0) * 100).toFixed(0)}%</div>
+                <div className="quality-metric-label">Coverage</div>
+              </div>
+            </div>
+          )}
+
+          {(contractReviewAudit?.recommendation || result.evaluation?.recommendation) && (
+            <p style={{ fontSize: "13px", color: "var(--text-muted)", marginTop: "12px", lineHeight: "1.5" }}>
+              {contractReviewAudit?.recommendation || result.evaluation?.recommendation}
+            </p>
+          )}
         </div>
       )}
 
+      {/* ===== SUPPLEMENTAL AI RESEARCH NOTES ===== */}
+      {(!isContractReview || showSupplementalAnalysis) && result && (
+        <>
+          <div className="two-col-grid">
+            <div className="card">
+              <div className="card-header">
+                <div className="card-title">
+                  {isContractReview ? "AI Research: Summary" : "Executive Summary"}
+                </div>
+              </div>
+              <div className="card-body">
+                <p style={{ fontSize: "14px", color: "var(--text-body)", lineHeight: "1.7" }}>
+                  {result.summary}
+                </p>
+              </div>
+            </div>
 
-
-      {contractReviewAudit && (
-        <div
-          className="card"
-          style={{
-            marginBottom: '20px',
-            borderLeft: `4px solid ${contractReviewAudit.status === 'pass' ? 'var(--success)' : 'var(--danger)'}`
-          }}
-        >
-          <div className="card-header">
-            <div className="card-title">
-              <div className="card-title-icon icon-bg-orange">🛡️</div>
-              Analysis Quality Check
-            </div>
-            <div className={`risk-badge ${contractReviewAudit.status === 'pass' ? 'low' : 'high'}`} style={{ textTransform: 'uppercase' }}>
-              {contractReviewAudit.status === 'pass' ? 'Verified' : 'Review Required'}
-            </div>
-          </div>
-          <div className="card-body">
-            <div style={{
-              padding: '12px',
-              borderRadius: '8px',
-              background: 'rgba(255,255,255,0.03)',
-              border: '1px solid var(--border-color)',
-              color: 'var(--text-primary)',
-              fontSize: '14px',
-              fontWeight: '500'
-            }}>
-              {contractReviewAudit.recommendation || "The system has verified the findings against the document source text."}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ===== RESULTS GRID ===== */}
-      {(!isContractReview || showSupplementalAnalysis) && (
-      <div className="two-col-grid">
-        <div className="card">
-          <div className="card-header">
-            <div className="card-title">
-              <div className="card-title-icon icon-bg-blue">📋</div>
-              {isContractReview ? "Supplemental Executive Summary" : "Executive Summary"}
-            </div>
-          </div>
-          <div className="card-body">
-            <p className="summary-text">{result.summary}</p>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-header">
-            <div className="card-title">
-              <div className="card-title-icon icon-bg-green">💡</div>
-              {isContractReview ? "Supplemental Key Insights" : "Key Insights"}
-            </div>
-          </div>
-          <div className="card-body">
-            <ul className="insight-list">
-              {result.key_insights?.map((i, idx) => (
-                <li key={idx} className="insight-item-complex">
-                  <div className="insight-main">
-                    <span className="insight-bullet">✓</span>
-                    <div className="insight-content">
-                      <div className="insight-header">
-                        <span className="insight-text">{i.insight}</span>
-                        {renderConfidence(i.confidence)}
+            <div className="card">
+              <div className="card-header">
+                <div className="card-title">
+                  {isContractReview ? "AI Research: Key Insights" : "Key Insights"}
+                </div>
+              </div>
+              <div className="card-body">
+                {result.key_insights?.map((i, idx) => (
+                  <div key={idx} className="insight-feed-item">
+                    <span className="insight-severity-dot low" />
+                    <div>
+                      <div className="insight-feed-text">{i.insight}</div>
+                      <div className="source-quote" style={{ margin: "6px 0 0", cursor: "default" }}>
+                        "{i.source}"
                       </div>
-                      <blockquote className="source-quote">"{i.source}"</blockquote>
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      </div>
-      )}
-
-      {(!isContractReview || showSupplementalAnalysis) && (
-      <div className="two-col-grid">
-        <div className="card">
-          <div className="card-header">
-            <div className="card-title">
-              <div className="card-title-icon icon-bg-red">🛡️</div>
-              {isContractReview ? "Supplemental Risks Identified" : "Risks Identified"}
-            </div>
-          </div>
-          <div className="card-body">
-            <ul className="risk-list">
-              {result.risks?.map((r, idx) => (
-                <li key={idx} className="risk-item-complex">
-                  <div className="risk-header">
-                    <div className="risk-title-row">
-                      <span className={`risk-dot ${r.severity?.toLowerCase()}`}></span>
-                      <strong>{r.finding}</strong>
-                    </div>
-                    <span className={`risk-badge ${r.severity?.toLowerCase()}`}>
-                      {getSeverityLabel(r.severity)}
-                    </span>
-                  </div>
-                  <p className="risk-reason">{r.reason}</p>
-                  <blockquote className="source-quote">"{r.source}"</blockquote>
-                  <div style={{ textAlign: 'right', marginTop: '4px' }}>
-                    {renderConfidence(r.confidence)}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-header">
-            <div className="card-title">
-              <div className="card-title-icon icon-bg-purple">🚀</div>
-              {isContractReview ? "Supplemental Recommended Actions" : "Recommended Actions"}
-            </div>
-          </div>
-          <div className="card-body">
-            <ul className="action-list">
-              {result.recommended_actions?.map((a, idx) => (
-                <li key={idx} className="action-item-complex">
-                  <div className="action-main">
-                    <span className="action-dot"></span>
-                    <div className="action-content">
-                      <div className="action-header">
-                        <strong>{a.action}</strong>
-                        {renderConfidence(a.confidence)}
+                      <div style={{ fontSize: "12px", color: "var(--text-faint)", marginTop: "4px" }}>
+                        Grounded: {(i.confidence * 100).toFixed(0)}%
                       </div>
-                      <p className="action-rationale">{a.rationale}</p>
-                      <blockquote className="source-quote">"{a.source}"</blockquote>
                     </div>
                   </div>
-                </li>
-              ))}
-            </ul>
+                ))}
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+
+          <div className="two-col-grid">
+            <div className="card">
+              <div className="card-header">
+                <div className="card-title">
+                  {isContractReview ? "AI Research: Risks" : "Risks Identified"}
+                </div>
+              </div>
+              <div className="card-body">
+                {result.risks?.map((r, idx) => (
+                  <div key={idx} className="insight-feed-item">
+                    <span className={`insight-severity-dot ${getSeverityClass(r.severity)}`} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                        <span className="insight-feed-text" style={{ fontWeight: 500 }}>{r.finding}</span>
+                        <span className={`badge badge-${getSeverityClass(r.severity)}`}>{getSeverityLabel(r.severity)}</span>
+                      </div>
+                      <p style={{ fontSize: "12px", color: "var(--text-muted)", margin: "4px 0" }}>{r.reason}</p>
+                      <div className="source-quote" style={{ margin: "4px 0 0", cursor: "default" }}>"{r.source}"</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="card">
+              <div className="card-header">
+                <div className="card-title">
+                  {isContractReview ? "AI Research: Actions" : "Recommended Actions"}
+                </div>
+              </div>
+              <div className="card-body">
+                {result.recommended_actions?.map((a, idx) => (
+                  <div key={idx} className="insight-feed-item">
+                    <span className="insight-severity-dot medium" />
+                    <div style={{ flex: 1 }}>
+                      <span className="insight-feed-text" style={{ fontWeight: 500 }}>{a.action}</span>
+                      <p style={{ fontSize: "12px", color: "var(--text-muted)", margin: "4px 0" }}>{a.rationale}</p>
+                      <div className="source-quote" style={{ margin: "4px 0 0", cursor: "default" }}>"{a.source}"</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </>
       )}
 
       {/* ===== Q&A SECTION ===== */}
-      <div className="query-card full-width" style={{ marginTop: '20px' }}>
+      <div className="qa-section">
         {queryResult && queryResult.reasoning && (
-           <div className="ai-reasoning-mini">
-              <strong>Thought Process:</strong>
-              <p>{queryResult.reasoning}</p>
-           </div>
+          <div className="reasoning-block">
+            <strong>Thought Process</strong>
+            <p>{queryResult.reasoning}</p>
+          </div>
         )}
 
-        <div className="query-card-header">
-          <div className="query-card-icon">💬</div>
-          <h2 className="query-card-title">{isContractReview ? "Contract Q&A" : "Strategic Q&A"}</h2>
-        </div>
-        <p className="query-card-subtitle">Answers are strictly grounded in <strong>{document_id}</strong> citations.</p>
-        
+        <div className="qa-title">Ask about this contract</div>
+        <div className="qa-subtitle">Answers are grounded in clause citations only</div>
+
         {queryResult && queryResult.context_quality !== "full" && (
-           <div className="inline-gap-warning">
-              ⚠️ <strong>Partial Context:</strong> {queryResult.context_gap}
-           </div>
+          <div className="context-notice" style={{ marginBottom: "12px" }}>
+            <AlertTriangle />
+            <span className="context-notice-text">
+              <strong>Partial Context:</strong> {queryResult.context_gap}
+            </span>
+          </div>
         )}
 
-        <div className="query-input-row" style={{ marginTop: '10px' }}>
+        <div className="qa-input-row">
           <input
-            type="text"
-            className="query-input"
-            placeholder={queryPlaceholder}
+            className="qa-input"
+            placeholder={
+              contractProfile
+                ? "e.g., What is the governing law? Is there a termination right?"
+                : "e.g., Extract the step-by-step implementation plan from section 4."
+            }
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleQuery()}
             disabled={queryLoading}
           />
-          <button className={`query-btn ${queryLoading ? 'loading' : ''}`} onClick={handleQuery} disabled={queryLoading}>
-            {queryLoading ? <span className="spinner"></span> : "Analyze →"}
+          <button
+            className="btn btn-primary"
+            onClick={handleQuery}
+            disabled={queryLoading}
+          >
+            {queryLoading ? <span className="spinner" /> : "Analyze →"}
           </button>
         </div>
 
+        {/* Example chips */}
+        {!queryResult && (
+          <div className="qa-chips">
+            {[
+              "What is the liability cap?",
+              "Is there a non-compete clause?",
+              "What are the termination rights?",
+            ].map((q) => (
+              <button
+                key={q}
+                className="qa-chip"
+                onClick={() => {
+                  setQuery(q);
+                }}
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        )}
+
         {queryResult && (
-          <div className="ai-response">
-            <div className="ai-response-header">⚖️ Grounded Intelligence Answer</div>
-            <div className="ai-response-text" style={{ whiteSpace: 'pre-wrap', fontSize: '14px', lineHeight: '1.6' }}>{queryResult.answer || queryResult.summary}</div>
-            
+          <div className="qa-response">
+            <div className="qa-response-header">
+              <Shield size={14} /> Grounded Intelligence Answer
+            </div>
+            <div className="qa-response-text">
+              {queryResult.answer || queryResult.summary}
+            </div>
+
             {queryResult.citations?.length > 0 && (
-              <div className="response-citations" style={{ marginTop: '20px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '15px' }}>
-                <div style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '10px', letterSpacing: '0.05em' }}>
-                  Supporting Evidence (Verbatim Citations)
-                </div>
+              <div className="qa-citations">
+                <div className="qa-citations-label">Supporting Evidence (Verbatim)</div>
                 {queryResult.citations.map((cite, i) => (
-                   <div key={i} className="citation-item" style={{ marginBottom: '12px' }}>
-                      <blockquote 
-                        className="source-quote" 
-                        style={{ cursor: 'pointer', margin: '0 0 4px 0' }}
-                        onClick={() => setActiveQuote(cite.quote)}
-                        title="Click to locate this quote in the document"
-                      >
-                        "{cite.quote}"
-                      </blockquote>
-                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontStyle: 'italic', paddingLeft: '12px' }}>
-                        — {cite.relevance}
-                      </div>
-                   </div>
+                  <div key={i} style={{ marginBottom: "12px" }}>
+                    <div
+                      className="source-quote"
+                      onClick={() => setActiveQuote(cite.quote)}
+                      title="Click to verify in source"
+                    >
+                      "{cite.quote}"
+                    </div>
+                    <div style={{ fontSize: "12px", color: "var(--text-muted)", fontStyle: "italic", paddingLeft: "14px", marginTop: "2px" }}>
+                      — {cite.relevance}
+                    </div>
+                  </div>
                 ))}
-                <div style={{ textAlign: 'right', marginTop: '10px' }}>
-                  {renderConfidence(queryResult.confidence)}
+                <div style={{ textAlign: "right" }}>
+                  <span className="finding-confidence">
+                    Grounded: {(queryResult.confidence * 100).toFixed(0)}%
+                  </span>
                 </div>
               </div>
             )}
-            
+
             {!queryResult.citations && queryResult.key_insights?.length > 0 && (
-              /* Fallback for legacy insights if any */
-              <div className="response-citations">
-                <strong>Supporting Evidence:</strong>
+              <div className="qa-citations">
+                <div className="qa-citations-label">Supporting Evidence</div>
                 {queryResult.key_insights.map((ins, i) => (
-                   <div key={i} className="citation-item">
-                      <blockquote className="source-quote">"{ins.source}"</blockquote>
-                      <div className="citation-meta">
-                        {renderConfidence(ins.confidence)}
-                      </div>
-                   </div>
+                  <div key={i} style={{ marginBottom: "8px" }}>
+                    <div className="source-quote" style={{ cursor: "default" }}>"{ins.source}"</div>
+                    <div style={{ textAlign: "right", fontSize: "12px", color: "var(--text-faint)", marginTop: "2px" }}>
+                      Grounded: {(ins.confidence * 100).toFixed(0)}%
+                    </div>
+                  </div>
                 ))}
               </div>
             )}
           </div>
         )}
       </div>
-      
-      {/* ===== LEGAL DISCLAIMER (UPL Shield) ===== */}
-      <div style={{
-          marginTop: '40px',
-          padding: '20px',
-          borderTop: '1px solid rgba(255,255,255,0.05)',
-          color: 'rgba(255,255,255,0.4)',
-          fontSize: '11px',
-          lineHeight: '1.5',
-          textAlign: 'center',
-          maxWidth: '800px',
-          margin: '40px auto 0'
-      }}>
+
+      {/* ===== LEGAL DISCLAIMER ===== */}
+      <div className="legal-disclaimer">
         <p>
-          <strong>IMPORTANT NOTICE:</strong> This report is generated by the RAGForge Legal Intelligence Engine exclusively to assist attorneys in their review process. 
-          It does <strong>NOT</strong> constitute legal advice, form an attorney-client relationship, or substitute human legal judgment. 
-          Artificial Intelligence can hallucinate, omit critical context, or misinterpret drafting intent. 
+          <strong>IMPORTANT NOTICE:</strong> This report is generated by the RAGForge Legal Intelligence Engine exclusively to assist attorneys in their review process.
+          It does <strong>NOT</strong> constitute legal advice, form an attorney-client relationship, or substitute human legal judgment.
+          Artificial Intelligence can hallucinate, omit critical context, or misinterpret drafting intent.
           You must verify all findings, missing protections, and source quotes manually against the primary document before advising clients.
         </p>
       </div>
 
-      <DocumentViewer 
-        rawText={rawText} 
-        highlightQuote={activeQuote} 
-        onClose={() => setActiveQuote(null)} 
+      <DocumentViewer
+        rawText={rawText}
+        highlightQuote={activeQuote}
+        onClose={() => setActiveQuote(null)}
       />
-
     </div>
   );
 };

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { API_BASE_URL } from "../config";
+import { AlertTriangle, TrendingUp, TrendingDown, Minus } from "lucide-react";
 
 const Analytics = () => {
   const [data, setData] = useState(null);
@@ -15,8 +16,7 @@ const Analytics = () => {
     try {
       const res = await fetch(`${API_BASE_URL}/analytics`);
       if (!res.ok) throw new Error("Failed to load analytics");
-      const result = await res.json();
-      setData(result);
+      setData(await res.json());
     } catch (err) {
       console.error(err);
       setError("Failed to retrieve system performance analytics.");
@@ -28,9 +28,9 @@ const Analytics = () => {
   if (loading) {
     return (
       <div className="empty-state">
-        <span className="spinner" style={{ marginBottom: '20px' }}></span>
+        <span className="spinner spinner-lg" style={{ marginBottom: "16px" }} />
         <div className="empty-state-title">Calculating Metrics</div>
-        <div className="empty-state-desc">Aggregating system performance and trend data...</div>
+        <div className="empty-state-desc">Aggregating system performance and trend data…</div>
       </div>
     );
   }
@@ -38,149 +38,183 @@ const Analytics = () => {
   if (error) {
     return (
       <div className="empty-state">
-        <div className="empty-state-icon">⚠️</div>
+        <div className="empty-state-icon"><AlertTriangle /></div>
         <div className="empty-state-title">Analytics Unavailable</div>
         <div className="empty-state-desc">{error}</div>
-        <button className="sidebar-upgrade-btn" onClick={fetchAnalytics} style={{ marginTop: '20px' }}>Retry Analysis</button>
+        <button className="btn btn-primary" onClick={fetchAnalytics} style={{ marginTop: "16px" }}>
+          Retry Analysis
+        </button>
       </div>
     );
   }
 
+  // Compute max doc count for bar widths
+  const docEntries = Object.entries(data.docs_over_time || {}).sort((a, b) => b[0].localeCompare(a[0]));
+  const maxDocCount = Math.max(...docEntries.map(([, c]) => c), 1);
+
+  // Risk trend
+  const lastWeek = data.risk_trend?.last_week || 0;
+  const thisWeek = data.risk_trend?.this_week || 0;
+  const trendDelta = thisWeek - lastWeek;
+  const trendPct = lastWeek > 0 ? ((trendDelta / lastWeek) * 100).toFixed(0) : 0;
+  const direction = data.risk_trend?.direction || "stable";
+
   return (
     <div className="analytics-page">
       <div className="two-col-grid">
-        {/* 🔥 1. DOCUMENT ACTIVITY */}
+        {/* Document Activity with inline bars */}
         <div className="card">
           <div className="card-header">
-            <div className="card-title">
-              <div className="card-title-icon icon-bg-blue">📅</div>
-              Document Activity
-            </div>
+            <div className="card-title">Document Activity</div>
           </div>
           <div className="card-body">
-            <p className="summary-text" style={{ marginBottom: '12px' }}>Uploads over time:</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {Object.entries(data.docs_over_time).length > 0 ? (
-                Object.entries(data.docs_over_time)
-                  .sort((a, b) => b[0].localeCompare(a[0]))
-                  .map(([date, count]) => (
-                    <div key={date} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: 'var(--gray-50)', borderRadius: '6px' }}>
-                      <span style={{ fontSize: '13px', fontWeight: '500' }}>{date}</span>
-                      <span style={{ fontSize: '13px', color: 'var(--primary-600)', fontWeight: '600' }}>{count} docs</span>
-                    </div>
-                  ))
-              ) : (
-                <div className="empty-state-desc">No activity recorded.</div>
-              )}
-            </div>
+            {docEntries.length > 0 ? (
+              docEntries.map(([date, count]) => (
+                <div key={date} className="activity-row">
+                  <span className="activity-date">{date}</span>
+                  <div className="activity-bar">
+                    <div
+                      className="activity-bar-fill"
+                      style={{ width: `${(count / maxDocCount) * 100}%` }}
+                    />
+                  </div>
+                  <span className="activity-count">{count} docs</span>
+                </div>
+              ))
+            ) : (
+              <div className="empty-state-desc">No activity recorded.</div>
+            )}
           </div>
         </div>
 
-        {/* 🔥 2. RISK TREND */}
+        {/* Risk Trend — neutral presentation */}
         <div className="card">
           <div className="card-header">
-            <div className="card-title">
-              <div className="card-title-icon icon-bg-red">📉</div>
-              Risk Trend
-            </div>
+            <div className="card-title">Risk Trend</div>
           </div>
           <div className="card-body">
-            <div style={{ textAlign: 'center', padding: '10px 0' }}>
-               <div style={{ fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px' }}>System Status</div>
-               <div style={{ fontSize: '24px', fontWeight: '700', marginTop: '8px', color: data.risk_trend.direction === 'down' ? 'var(--success)' : (data.risk_trend.direction === 'up' ? 'var(--danger)' : 'var(--text-primary)') }}>
-                  Risks are {data.risk_trend.direction === 'down' ? 'decreasing ↓' : (data.risk_trend.direction === 'up' ? 'increasing ↑' : 'stable')}
-               </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "16px", padding: "8px 0 16px" }}>
+              <div>
+                <div className="stat-label">Last Week</div>
+                <div className="stat-value" style={{ fontSize: "24px" }}>{lastWeek}</div>
+              </div>
+              <div style={{ color: "var(--text-faint)", fontSize: "20px" }}>→</div>
+              <div>
+                <div className="stat-label">This Week</div>
+                <div className="stat-value" style={{ fontSize: "24px" }}>{thisWeek}</div>
+              </div>
+              <div style={{ flex: 1 }} />
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+                padding: "6px 10px",
+                borderRadius: "var(--radius-badge)",
+                background: direction === "down" ? "var(--success-bg)" : direction === "up" ? "var(--danger-bg)" : "var(--bg-surface-alt)",
+                color: direction === "down" ? "var(--success)" : direction === "up" ? "var(--danger)" : "var(--text-muted)",
+                fontSize: "13px",
+                fontWeight: 500
+              }}>
+                {direction === "up" && <TrendingUp size={14} />}
+                {direction === "down" && <TrendingDown size={14} />}
+                {direction === "stable" && <Minus size={14} />}
+                {trendDelta > 0 ? "+" : ""}{trendPct}%
+              </div>
             </div>
-            <div className="summary-meta" style={{ marginTop: '20px' }}>
-               <div className="summary-meta-item">
-                  <strong>Last Week:</strong> {data.risk_trend.last_week}
-               </div>
-               <div className="summary-meta-item">
-                  <strong>This Week:</strong> {data.risk_trend.this_week}
-               </div>
+
+            <div style={{ borderTop: "1px solid var(--border-default)", paddingTop: "12px" }}>
+              <div className="stat-label" style={{ marginBottom: "4px" }}>Status</div>
+              <div style={{ fontSize: "14px", color: "var(--text-body)" }}>
+                {direction === "down"
+                  ? "Risks are decreasing — trending favorably."
+                  : direction === "up"
+                  ? "Risks are increasing — review new documents."
+                  : "Risk levels are holding steady."}
+              </div>
             </div>
           </div>
         </div>
       </div>
 
       <div className="two-col-grid">
-        {/* 🔥 3. PERFORMANCE */}
+        {/* Performance Metrics */}
         <div className="card">
           <div className="card-header">
-            <div className="card-title">
-              <div className="card-title-icon icon-bg-green">⚡</div>
-              Performance Metrics
-            </div>
+            <div className="card-title">Performance</div>
           </div>
           <div className="card-body">
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-               <div className="stat-card" style={{ boxShadow: 'none', background: 'var(--gray-50)' }}>
-                  <div className="stat-value" style={{ fontSize: '20px' }}>{(data.performance.avg_confidence * 100).toFixed(0)}%</div>
-                  <div className="stat-label">Avg Confidence</div>
-               </div>
-               <div className="stat-card" style={{ boxShadow: 'none', background: 'var(--gray-50)' }}>
-                  <div className="stat-value" style={{ fontSize: '20px' }}>{data.performance.avg_response_time}s</div>
-                  <div className="stat-label">Response Time</div>
-               </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+              <div>
+                <div className="stat-label">Avg Confidence</div>
+                <div className="stat-value" style={{ fontSize: "20px" }}>
+                  {(data.performance.avg_confidence * 100).toFixed(0)}%
+                </div>
+              </div>
+              <div>
+                <div className="stat-label">Response Time</div>
+                <div className="stat-value" style={{ fontSize: "20px" }}>
+                  {data.performance.avg_response_time}s
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* 🔥 5. USAGE */}
+        {/* Usage Stats */}
         <div className="card">
           <div className="card-header">
-            <div className="card-title">
-              <div className="card-title-icon icon-bg-purple">📊</div>
-              Usage Stats
-            </div>
+            <div className="card-title">Usage</div>
           </div>
           <div className="card-body">
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-               <div className="stat-card" style={{ boxShadow: 'none', background: 'var(--gray-50)' }}>
-                  <div className="stat-value" style={{ fontSize: '20px' }}>{data.usage.total_queries}</div>
-                  <div className="stat-label">Queries Asked</div>
-               </div>
-               <div className="stat-card" style={{ boxShadow: 'none', background: 'var(--gray-50)' }}>
-                  <div className="stat-value" style={{ fontSize: '20px' }}>{data.usage.total_analyses}</div>
-                  <div className="stat-label">Analyses Done</div>
-               </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+              <div>
+                <div className="stat-label">Queries Asked</div>
+                <div className="stat-value" style={{ fontSize: "20px" }}>
+                  {data.usage.total_queries}
+                </div>
+              </div>
+              <div>
+                <div className="stat-label">Analyses Done</div>
+                <div className="stat-value" style={{ fontSize: "20px" }}>
+                  {data.usage.total_analyses}
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Common Risks List (Simple Placeholder for now) */}
+      {/* Common Risks */}
       <div className="card full-width">
         <div className="card-header">
-           <div className="card-title">
-              <div className="card-title-icon icon-bg-orange">⚠️</div>
-              Common System Risks
-           </div>
+          <div className="card-title">Common System Risks</div>
         </div>
         <div className="card-body">
-           <ul className="risk-list">
-              <li className="risk-item">
-                 <div className="risk-item-left">
-                    <span className="risk-dot high"></span>
-                    Identity & Access Misconfiguration
-                 </div>
-                 <span className="risk-badge high">High Probability</span>
-              </li>
-              <li className="risk-item">
-                 <div className="risk-item-left">
-                    <span className="risk-dot medium"></span>
-                    API Response Latency Spikes
-                 </div>
-                 <span className="risk-badge medium">Medium Probability</span>
-              </li>
-              <li className="risk-item">
-                 <div className="risk-item-left">
-                    <span className="risk-dot low"></span>
-                    Context Window Overflows
-                 </div>
-                 <span className="risk-badge low">Low Probability</span>
-              </li>
-           </ul>
+          {[
+            { name: "Identity & Access Misconfiguration", level: "high", label: "High Probability" },
+            { name: "API Response Latency Spikes", level: "medium", label: "Medium Probability" },
+            { name: "Context Window Overflows", level: "low", label: "Low Probability" },
+          ].map((risk, idx) => (
+            <div
+              key={idx}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: "10px 0",
+                borderBottom: idx < 2 ? "1px solid var(--border-default)" : "none",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <span
+                  className={`insight-severity-dot ${risk.level}`}
+                  style={{ marginTop: 0 }}
+                />
+                <span style={{ fontSize: "14px", color: "var(--text-body)" }}>{risk.name}</span>
+              </div>
+              <span className={`badge badge-${risk.level}`}>{risk.label}</span>
+            </div>
+          ))}
         </div>
       </div>
     </div>

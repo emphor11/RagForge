@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { API_BASE_URL } from "../config";
+import { AlertTriangle } from "lucide-react";
 
 const Reports = () => {
   const [data, setData] = useState(null);
@@ -15,8 +16,7 @@ const Reports = () => {
     try {
       const res = await fetch(`${API_BASE_URL}/reports`);
       if (!res.ok) throw new Error("Failed to load reports");
-      const result = await res.json();
-      setData(result);
+      setData(await res.json());
     } catch (err) {
       console.error(err);
       setError("Failed to generate intelligence reports across all documents.");
@@ -28,9 +28,9 @@ const Reports = () => {
   if (loading) {
     return (
       <div className="empty-state">
-        <span className="spinner" style={{ marginBottom: '20px' }}></span>
+        <span className="spinner spinner-lg" style={{ marginBottom: "16px" }} />
         <div className="empty-state-title">Aggregating Intelligence</div>
-        <div className="empty-state-desc">Synthesizing findings across your entire document library...</div>
+        <div className="empty-state-desc">Synthesizing findings across your entire document library…</div>
       </div>
     );
   }
@@ -38,121 +38,133 @@ const Reports = () => {
   if (error) {
     return (
       <div className="empty-state">
-        <div className="empty-state-icon">⚠️</div>
+        <div className="empty-state-icon"><AlertTriangle /></div>
         <div className="empty-state-title">Generation Failed</div>
         <div className="empty-state-desc">{error}</div>
-        <button className="sidebar-upgrade-btn" onClick={fetchReports} style={{ marginTop: '20px' }}>Retry Aggregation</button>
+        <button className="btn btn-primary" onClick={fetchReports} style={{ marginTop: "16px" }}>
+          Retry Aggregation
+        </button>
       </div>
     );
   }
 
+  const totalRisks = (data.risk_summary?.high || 0) + (data.risk_summary?.medium || 0) + (data.risk_summary?.low || 0);
+  const maxRisk = Math.max(data.risk_summary?.high || 0, data.risk_summary?.medium || 0, data.risk_summary?.low || 0, 1);
+
   return (
     <div className="reports-page">
-      {/* 🔥 1. TOTAL NUMBERS (TOP) */}
-      <div className="stats-row" style={{ marginBottom: '24px' }}>
+      {/* Stat Cards */}
+      <div className="stats-row" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
         <div className="stat-card">
-          <div className="stat-icon icon-bg-blue">📁</div>
-          <div className="stat-value">{data.total_docs}</div>
           <div className="stat-label">Total Documents</div>
+          <div className="stat-value">{data.total_docs}</div>
         </div>
         <div className="stat-card">
-          <div className="stat-icon icon-bg-red">🛡️</div>
-          <div className="stat-value">{data.total_risks}</div>
           <div className="stat-label">Total Risks Found</div>
+          <div className="stat-value">{data.total_risks}</div>
         </div>
         <div className="stat-card">
-          <div className="stat-icon icon-bg-purple">🚀</div>
+          <div className="stat-label">Actions Required</div>
           <div className="stat-value">{data.total_actions}</div>
-          <div className="stat-label">Total Actions Required</div>
         </div>
       </div>
 
       <div className="two-col-grid">
-        {/* 🔥 2. RISK SUMMARY */}
+        {/* Risk Breakdown — CSS bar chart */}
         <div className="card">
           <div className="card-header">
-            <div className="card-title">
-              <div className="card-title-icon icon-bg-red">📊</div>
-              Risk Breakdown
-            </div>
+            <div className="card-title">Risk Breakdown</div>
           </div>
           <div className="card-body">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div className="risk-item" style={{ fontSize: '15px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                   <span className="risk-dot high"></span>
-                   <strong>High Severity</strong>
+            <div className="risk-bar-group">
+              <div className="risk-bar-item">
+                <span className="risk-bar-label">High</span>
+                <div className="risk-bar-track">
+                  <div
+                    className="risk-bar-fill high"
+                    style={{ width: `${((data.risk_summary?.high || 0) / maxRisk) * 100}%` }}
+                  />
                 </div>
-                <span className="risk-badge high">{data.risk_summary.high}</span>
+                <span className="risk-bar-count">{data.risk_summary?.high || 0}</span>
               </div>
-              <div className="risk-item" style={{ fontSize: '15px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                   <span className="risk-dot medium"></span>
-                   <strong>Medium Severity</strong>
+              <div className="risk-bar-item">
+                <span className="risk-bar-label">Medium</span>
+                <div className="risk-bar-track">
+                  <div
+                    className="risk-bar-fill medium"
+                    style={{ width: `${((data.risk_summary?.medium || 0) / maxRisk) * 100}%` }}
+                  />
                 </div>
-                <span className="risk-badge medium">{data.risk_summary.medium}</span>
+                <span className="risk-bar-count">{data.risk_summary?.medium || 0}</span>
               </div>
-              <div className="risk-item" style={{ fontSize: '15px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                   <span className="risk-dot low"></span>
-                   <strong>Low Severity</strong>
+              <div className="risk-bar-item">
+                <span className="risk-bar-label">Low</span>
+                <div className="risk-bar-track">
+                  <div
+                    className="risk-bar-fill low"
+                    style={{ width: `${((data.risk_summary?.low || 0) / maxRisk) * 100}%` }}
+                  />
                 </div>
-                <span className="risk-badge low">{data.risk_summary.low}</span>
+                <span className="risk-bar-count">{data.risk_summary?.low || 0}</span>
               </div>
             </div>
           </div>
         </div>
 
-        {/* 🔥 3. TOP INSIGHTS */}
+        {/* Top Insights Feed */}
         <div className="card">
           <div className="card-header">
-            <div className="card-title">
-              <div className="card-title-icon icon-bg-green">💡</div>
-              Top Insights Feed
-            </div>
+            <div className="card-title">Top Insights</div>
           </div>
           <div className="card-body">
-            <ul className="insight-list">
-              {data.top_insights.length > 0 ? (
-                data.top_insights.map((ins, idx) => (
-                  <li key={idx} className="insight-item" style={{ paddingBottom: '12px', borderBottom: idx < data.top_insights.length - 1 ? '1px solid var(--gray-100)' : 'none' }}>
-                    <span className="insight-bullet">👉</span>
-                    {ins}
-                  </li>
-                ))
-              ) : (
-                <div className="empty-state-desc">No insights extracted yet.</div>
-              )}
-            </ul>
+            {data.top_insights?.length > 0 ? (
+              data.top_insights.map((ins, idx) => (
+                <div key={idx} className="insight-feed-item">
+                  <span className={`insight-severity-dot ${idx < 2 ? "high" : idx < 4 ? "medium" : "low"}`} />
+                  <div>
+                    <div className="insight-feed-text">{ins}</div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="empty-state-desc">No insights extracted yet.</div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* 🔥 4. DOCUMENT LIST */}
+      {/* Document Registry */}
       <div className="card full-width">
         <div className="card-header">
-          <div className="card-title">
-            <div className="card-title-icon icon-bg-blue">📋</div>
-            Document Registry Summary
-          </div>
+          <div className="card-title">Document Registry</div>
         </div>
         <div className="card-body">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {data.doc_list.length > 0 ? (
-              data.doc_list.map((doc, idx) => (
-                <div key={idx} className="card" style={{ padding: '16px', display: 'flex', alignItems: 'center', gap: '20px', background: 'var(--gray-50)' }}>
-                  <div style={{ fontSize: '24px' }}>📄</div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: '600', fontSize: '15px' }}>{doc.name}</div>
-                    <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>{doc.summary}</div>
-                  </div>
-                  <div style={{ color: 'var(--primary-500)', fontWeight: '600', fontSize: '13px' }}>Analyzed ✓</div>
-                </div>
-              ))
-            ) : (
-              <div className="empty-state-desc">No documents found in the registry.</div>
-            )}
-          </div>
+          {data.doc_list?.length > 0 ? (
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Document</th>
+                  <th>Summary</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.doc_list.map((doc, idx) => (
+                  <tr key={idx}>
+                    <td style={{ fontWeight: 500, color: "var(--text-primary)" }}>{doc.name}</td>
+                    <td style={{ color: "var(--text-muted)", fontSize: "13px", maxWidth: "400px" }}>
+                      {doc.summary}
+                    </td>
+                    <td>
+                      <span className="badge badge-low">Analyzed</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <div className="empty-state-desc">No documents found in the registry.</div>
+          )}
         </div>
       </div>
     </div>

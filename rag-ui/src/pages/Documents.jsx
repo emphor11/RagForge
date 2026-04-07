@@ -1,11 +1,13 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../config";
+import { FolderOpen, AlertTriangle } from "lucide-react";
 
 const Documents = () => {
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [filter, setFilter] = useState("all");
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -26,59 +28,131 @@ const Documents = () => {
     }
   };
 
+  const guessDocType = (name) => {
+    const n = (name || "").toLowerCase();
+    if (n.includes("nda") || n.includes("non-disclosure")) return "NDA";
+    if (n.includes("msa") || n.includes("master service")) return "MSA";
+    if (n.includes("sow") || n.includes("statement of work")) return "SOW";
+    if (n.includes("employ")) return "Employment";
+    return "Contract";
+  };
+
   return (
     <div className="documents-page">
-      <div className="card full-width">
+      <div className="card">
         <div className="card-header">
-          <div className="card-title">
-            <div className="card-title-icon icon-bg-indigo">📂</div>
-            My Documents
-          </div>
+          <div className="card-title">Documents</div>
+          <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>
+            {documents.length} total
+          </span>
         </div>
         <div className="card-body">
-          {error && <div className="error-banner">⚠️ {error}</div>}
-          
-          <div className="stats-row" style={{ 
-            gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', 
-            gap: '20px',
-            marginTop: '10px'
-          }}>
-            {loading ? (
-              <div className="empty-state" style={{ gridColumn: '1 / -1' }}>
-                <span className="spinner" style={{ borderColor: 'rgba(99, 102, 241, 0.3)', borderLeftColor: 'var(--primary-500)' }}></span>
-                <p>Loading document library...</p>
-              </div>
-            ) : documents.length > 0 ? (
-              documents.map((doc) => (
-                <div key={doc.id} className="card" style={{ padding: '20px', textAlign: 'left' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-                    <div className="card-title-icon icon-bg-blue">📄</div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: '600', fontSize: '15px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {doc.filename}
-                      </div>
-                      <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                        {new Date(doc.upload_date * 1000).toLocaleString()}
-                      </div>
-                    </div>
-                  </div>
-                  <button
-                    className="sidebar-upgrade-btn"
-                    onClick={() => navigate(`/documents/${encodeURIComponent(doc.id)}`)}
-                    style={{ width: '100%', padding: '8px' }}
-                  >
-                    View Analysis →
-                  </button>
-                </div>
-              ))
-            ) : (
-              <div className="empty-state" style={{ gridColumn: '1 / -1' }}>
-                <div className="empty-state-icon">📂</div>
-                <div className="empty-state-title">No documents yet</div>
-                <div className="empty-state-desc">Upload a document on the Dashboard to see it here.</div>
-              </div>
-            )}
+          {error && (
+            <div className="error-banner">
+              <AlertTriangle /> {error}
+            </div>
+          )}
+
+          {/* Filter bar */}
+          <div className="filter-bar">
+            {["all", "recent"].map((f) => (
+              <button
+                key={f}
+                className={`filter-btn ${filter === f ? "active" : ""}`}
+                onClick={() => setFilter(f)}
+              >
+                {f === "all" ? "All" : "Recent"}
+              </button>
+            ))}
           </div>
+
+          {loading ? (
+            <div className="empty-state">
+              <span className="spinner spinner-lg" />
+            </div>
+          ) : documents.length > 0 ? (
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Contract Name</th>
+                  <th>Type</th>
+                  <th>Uploaded</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {documents
+                  .filter((doc) => {
+                    if (filter === "recent") {
+                      const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+                      return doc.upload_date * 1000 > weekAgo;
+                    }
+                    return true;
+                  })
+                  .map((doc) => (
+                    <tr key={doc.id}>
+                      <td>
+                        <span
+                          style={{
+                            fontWeight: 500,
+                            color: "var(--text-primary)",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            display: "block",
+                            maxWidth: "400px",
+                          }}
+                        >
+                          {doc.filename}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="badge badge-neutral">
+                          {guessDocType(doc.filename)}
+                        </span>
+                      </td>
+                      <td
+                        style={{
+                          color: "var(--text-muted)",
+                          fontSize: "13px",
+                        }}
+                      >
+                        {new Date(doc.upload_date * 1000).toLocaleDateString(
+                          "en-US",
+                          {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                          }
+                        )}
+                      </td>
+                      <td>
+                        <span
+                          className="table-link"
+                          onClick={() =>
+                            navigate(
+                              `/documents/${encodeURIComponent(doc.id)}`
+                            )
+                          }
+                        >
+                          Review →
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          ) : (
+            <div className="empty-state">
+              <div className="empty-state-icon">
+                <FolderOpen />
+              </div>
+              <div className="empty-state-title">No documents yet</div>
+              <div className="empty-state-desc">
+                Upload a document on the Dashboard to see it here.
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
