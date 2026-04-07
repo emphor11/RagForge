@@ -257,10 +257,35 @@ const DocumentAnalysis = () => {
 
   const renderConfidence = (val) => {
     const pct = (val * 100).toFixed(0);
-    let color = "var(--success)";
-    if (val < 0.7) color = "var(--warning)";
-    if (val < 0.4) color = "var(--danger)";
-    return <span style={{ color, fontSize: '11px', fontWeight: '700', background: 'rgba(0,0,0,0.03)', padding: '2px 6px', borderRadius: '4px' }}>{pct}% Grounded</span>;
+    const isLow = val < 0.82;
+    
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+        {isLow && (
+          <span style={{ 
+            fontSize: '9px', 
+            fontWeight: '800', 
+            padding: '2px 6px', 
+            borderRadius: '4px', 
+            background: 'var(--danger)', 
+            color: '#fff',
+            textTransform: 'uppercase'
+          }}>
+            Low Confidence
+          </span>
+        )}
+        <span style={{ 
+          color: isLow ? 'var(--danger)' : 'var(--warning)', 
+          fontSize: '11px', 
+          fontWeight: '700', 
+          background: 'rgba(0,0,0,0.03)', 
+          padding: '2px 6px', 
+          borderRadius: '4px' 
+        }}>
+          {pct}% Grounded
+        </span>
+      </div>
+    );
   };
 
   const formatDocumentType = (value) => {
@@ -594,6 +619,43 @@ const DocumentAnalysis = () => {
                             "{quote}"
                           </blockquote>
                         ))}
+                        
+                        {/* Phase 3: Mitigation Suggestion */}
+                        {finding.mitigation_fix && (
+                          <div style={{ 
+                            marginTop: '12px', 
+                            padding: '12px', 
+                            background: 'rgba(16, 185, 129, 0.05)', 
+                            borderLeft: '3px solid var(--success)',
+                            borderRadius: '0 8px 8px 0'
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                              <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--success)', textTransform: 'uppercase' }}>
+                                Suggested Drafting Fix
+                              </span>
+                              <button 
+                                onClick={() => {
+                                  navigator.clipboard.writeText(finding.mitigation_fix);
+                                  alert("Drafting fix copied to clipboard!");
+                                }}
+                                style={{ 
+                                  fontSize: '10px', 
+                                  background: 'rgba(255,255,255,0.1)', 
+                                  border: 'none', 
+                                  color: 'var(--text-primary)',
+                                  padding: '2px 8px',
+                                  borderRadius: '4px',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                📋 Copy Fix
+                              </button>
+                            </div>
+                            <p style={{ fontSize: '12px', fontStyle: 'italic', color: 'var(--text-primary)', margin: 0, lineScale: '1.4' }}>
+                              {finding.mitigation_fix}
+                            </p>
+                          </div>
+                        )}
                         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '12px' }}>
                           <button
                             className="query-btn"
@@ -700,6 +762,44 @@ const DocumentAnalysis = () => {
                             {formatClauseType(finding.clause_type)}
                           </span>
                         </div>
+
+                        {/* Phase 3: Mitigation Suggestion for Missing Clauses */}
+                        {finding.mitigation_fix && (
+                          <div style={{ 
+                            marginTop: '12px', 
+                            padding: '12px', 
+                            background: 'rgba(217, 119, 6, 0.05)', 
+                            borderLeft: '3px solid var(--warning)',
+                            borderRadius: '0 8px 8px 0',
+                            marginBottom: '12px'
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                              <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--warning)', textTransform: 'uppercase' }}>
+                                Suggested Mitigation Language
+                              </span>
+                              <button 
+                                onClick={() => {
+                                  navigator.clipboard.writeText(finding.mitigation_fix);
+                                  alert("Mitigation language copied to clipboard!");
+                                }}
+                                style={{ 
+                                  fontSize: '10px', 
+                                  background: 'rgba(255,255,255,0.1)', 
+                                  border: 'none', 
+                                  color: 'var(--text-primary)',
+                                  padding: '2px 8px',
+                                  borderRadius: '4px',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                📋 Copy Fix
+                              </button>
+                            </div>
+                            <p style={{ fontSize: '12px', fontStyle: 'italic', color: 'var(--text-primary)', margin: 0, lineScale: '1.4' }}>
+                              {finding.mitigation_fix}
+                            </p>
+                          </div>
+                        )}
                         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '12px' }}>
                           <button className="query-btn" style={{ padding: '8px 12px', minWidth: 'auto' }} onClick={() => handleFindingStatusUpdate(idx, "accepted")}>Accept</button>
                           <button className="query-btn" style={{ padding: '8px 12px', minWidth: 'auto', background: 'var(--warning)', color: '#000' }} onClick={() => handleFindingStatusUpdate(idx, "negotiate")}>Add to Redline</button>
@@ -987,10 +1087,37 @@ const DocumentAnalysis = () => {
 
         {queryResult && (
           <div className="ai-response">
-            <div className="ai-response-header">✨ Intelligence Report</div>
-            <div className="ai-response-text" style={{ whiteSpace: 'pre-wrap' }}>{queryResult.summary}</div>
+            <div className="ai-response-header">⚖️ Grounded Intelligence Answer</div>
+            <div className="ai-response-text" style={{ whiteSpace: 'pre-wrap', fontSize: '14px', lineHeight: '1.6' }}>{queryResult.answer || queryResult.summary}</div>
             
-            {queryResult.key_insights?.length > 0 && (
+            {queryResult.citations?.length > 0 && (
+              <div className="response-citations" style={{ marginTop: '20px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '15px' }}>
+                <div style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '10px', letterSpacing: '0.05em' }}>
+                  Supporting Evidence (Verbatim Citations)
+                </div>
+                {queryResult.citations.map((cite, i) => (
+                   <div key={i} className="citation-item" style={{ marginBottom: '12px' }}>
+                      <blockquote 
+                        className="source-quote" 
+                        style={{ cursor: 'pointer', margin: '0 0 4px 0' }}
+                        onClick={() => setActiveQuote(cite.quote)}
+                        title="Click to locate this quote in the document"
+                      >
+                        "{cite.quote}"
+                      </blockquote>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontStyle: 'italic', paddingLeft: '12px' }}>
+                        — {cite.relevance}
+                      </div>
+                   </div>
+                ))}
+                <div style={{ textAlign: 'right', marginTop: '10px' }}>
+                  {renderConfidence(queryResult.confidence)}
+                </div>
+              </div>
+            )}
+            
+            {!queryResult.citations && queryResult.key_insights?.length > 0 && (
+              /* Fallback for legacy insights if any */
               <div className="response-citations">
                 <strong>Supporting Evidence:</strong>
                 {queryResult.key_insights.map((ins, i) => (

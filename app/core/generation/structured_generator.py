@@ -35,6 +35,50 @@ def extract_json(text: str) -> str:
 class StructuredGenerator:
     def __init__(self):
         self.api_key = settings.GROQ_API_KEY
+        self.standard_clauses = self._load_standard_clauses()
+
+    def _load_standard_clauses(self) -> dict:
+        import os
+        path = "app/resources/standard_clauses.json"
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                return json.load(f)
+        return {}
+
+    def _post_process_mitigation(self, data: dict) -> dict:
+        """
+        Injects vetted legal templates into findings based on keywords.
+        """
+        if not self.standard_clauses:
+            return data
+
+        # Keywords mapping for mitigation suggestion
+        mapping = {
+            "liability": "limitation_of_liability",
+            "arbitration": "arbitration_india",
+            "force majeure": "force_majeure",
+            "governing law": "governing_law_india",
+            "solicitation": "non_solicitation",
+            "compete": "non_compete" # We can add more to standard_clauses.json later
+        }
+
+        # Process Risks
+        for risk in data.get("risks", []):
+            finding_text = risk.get("finding", "").lower()
+            for kw, template_key in mapping.items():
+                if kw in finding_text:
+                    risk["mitigation_fix"] = self.standard_clauses.get(template_key)
+                    break
+
+        # Process Recommended Actions
+        for action in data.get("recommended_actions", []):
+            action_text = action.get("action", "").lower()
+            for kw, template_key in mapping.items():
+                if kw in action_text:
+                    action["mitigation_fix"] = self.standard_clauses.get(template_key)
+                    break
+
+        return data
 
     def generate(self, query: Optional[str] = None, docs: Optional[List[str]] = None, mode: str = "query", retries: int = 3) -> dict:
         if not self.api_key:
@@ -48,12 +92,14 @@ class StructuredGenerator:
         # In 'document' mode, use a broad intelligence extraction query
         effective_query = query if mode == "query" else "Perform a high-depth commercial and legal analysis focusing on non-obvious contractual exposures, critical risks, and actionable negotiation recommendations."
 
-        from app.core.generation.prompts import SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
+        from app.core.generation.prompts import SYSTEM_PROMPT, USER_PROMPT_TEMPLATE, CHAT_PROMPT_TEMPLATE
+
+        selected_user_template = CHAT_PROMPT_TEMPLATE if mode == "query" else USER_PROMPT_TEMPLATE
 
         full_prompt = (
             SYSTEM_PROMPT
             + "\n\n"
-            + USER_PROMPT_TEMPLATE.format(
+            + selected_user_template.format(
                 context=context,
                 query=effective_query
             )
@@ -74,9 +120,15 @@ class StructuredGenerator:
                 raw = str(response.choices[0].message.content or "")
                 cleaned = extract_json(raw)
                 
-                # Parse and validate with Pydantic
-                parsed = DecisionOutput.model_validate_json(cleaned)
-                return parsed.model_dump()
+                # Parse and validate with correct Pydantic model
+                from app.models.decision import DecisionOutput, ChatResponse
+                
+                model = ChatResponse if mode == "query" else DecisionOutput
+                parsed = model.model_validate_json(cleaned)
+                output_dict = parsed.model_dump()
+                
+                # Phase 3: Inject Mitigation Suggestions
+                return self._post_process_mitigation(output_dict)
 
             except Exception as e:
                 print(f"[Attempt {attempt + 1}] Intelligence generation failed: {e}")

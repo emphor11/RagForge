@@ -14,6 +14,7 @@ class Risk(BaseModel):
     reason: str
     source: str
     confidence: float
+    mitigation_fix: Optional[str] = None
 
 
 class Opportunity(BaseModel):
@@ -27,6 +28,19 @@ class Action(BaseModel):
     rationale: str
     source: str
     confidence: float
+    mitigation_fix: Optional[str] = None
+
+
+class ChatCitation(BaseModel):
+    quote: str
+    relevance: str
+
+
+class ChatResponse(BaseModel):
+    answer: str
+    citations: List[ChatCitation]
+    confidence: float
+    found_in_document: bool
 
 
 class DecisionOutput(BaseModel):
