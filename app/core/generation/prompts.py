@@ -44,9 +44,21 @@ TASK:
 1. Reason deeply through the context against the REQUIRED CLAUSE REVIEW CHECKLIST.
 2. Generate the intelligence report strictly following the JSON schema provided below.
 
+### FORMAL EXECUTIVE SUMMARY INSTRUCTIONS:
+- Generate a 3-sentence executive summary in 'formal_executive_summary'.
+- Sentence 1: identify the document, parties, date, and purpose. 
+- Sentence 2: state the overall risk assessment and number of findings. 
+- Sentence 3: state the single most urgent action required.
+
+### CLAUSE SCORECARD INSTRUCTIONS:
+- For 'clause_scorecard', evaluate the core clauses from the checklist.
+- Set 'status' to 'Present', 'Partial', or 'Missing'.
+- Set 'risk_level' to 'High', 'Medium', 'Low', or 'None'.
+
 {{
   "reasoning": "Detailed 80-120 word reasoning of the legal audit.",
-  "summary": "3-4 sentence commercial summary.",
+  "summary": "3-4 sentence commercial summary for the web UI.",
+  "formal_executive_summary": "3-sentence formal legal memo summary for the export report.",
   "key_insights": [
     {{
       "insight": "string",
@@ -76,6 +88,13 @@ TASK:
       "rationale": "string",
       "source": "verbatim quote OR 'DERIVED_FROM_MISSING:[clause_type]'",
       "confidence": 0.0-1.0
+    }}
+  ],
+  "clause_scorecard": [
+    {{
+      "clause_type": "string",
+      "status": "Present|Partial|Missing",
+      "risk_level": "High|Medium|Low|None"
     }}
   ],
   "overall_confidence": 0.0-1.0,

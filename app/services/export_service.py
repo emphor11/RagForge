@@ -4,119 +4,227 @@ from docx.shared import Pt, RGBColor, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from datetime import datetime
 
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+
+
 class ExportService:
     def __init__(self, output_dir: str = "exports"):
         self.output_dir = output_dir
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
+    def _set_cell_background(self, cell, fill_color):
+        """Helper to set cell background color using XML."""
+        tcPr = cell._tc.get_or_add_tcPr()
+        shd = OxmlElement('w:shd')
+        shd.set(qn('w:fill'), fill_color)
+        tcPr.append(shd)
+
+    def _add_page_number(self, paragraph):
+        """Helper to add dynamic 'Page X of Y' to a paragraph."""
+        run = paragraph.add_run()
+        
+        # XML for Page X
+        fldChar1 = OxmlElement('w:fldChar')
+        fldChar1.set(qn('w:fldCharType'), 'begin')
+        run._r.append(fldChar1)
+        
+        instrText1 = OxmlElement('w:instrText')
+        instrText1.set(qn('xml:space'), 'preserve')
+        instrText1.text = "PAGE"
+        run._r.append(instrText1)
+        
+        fldChar2 = OxmlElement('w:fldChar')
+        fldChar2.set(qn('w:fldCharType'), 'end')
+        run._r.append(fldChar2)
+        
+        # " of "
+        paragraph.add_run(" of ")
+        
+        # XML for NumPages Y
+        run2 = paragraph.add_run()
+        fldChar3 = OxmlElement('w:fldChar')
+        fldChar3.set(qn('w:fldCharType'), 'begin')
+        run2._r.append(fldChar3)
+        
+        instrText2 = OxmlElement('w:instrText')
+        instrText2.set(qn('xml:space'), 'preserve')
+        instrText2.text = "NUMPAGES"
+        run2._r.append(instrText2)
+        
+        fldChar4 = OxmlElement('w:fldChar')
+        fldChar4.set(qn('w:fldCharType'), 'end')
+        run2._r.append(fldChar4)
+
     def generate_report(self, document_id: str, insight_data: dict) -> str:
         """
-        Generates a professionally formatted DOCX report from the RAG pipeline output.
+        Generates a professionally formatted DOCX report from RAG output.
         """
         doc = Document()
 
         # Document styles
         style = doc.styles['Normal']
-        font = style.font
-        font.name = 'Arial'
-        font.size = Pt(11)
+        if hasattr(style, 'font'):
+            style.font.name = 'Arial'
+            style.font.size = Pt(10)
+
+        profile = insight_data.get('contract_profile', {})
+        document_type = profile.get('document_type', 'Contract')
+        parties = profile.get('parties', [])
+        effective_date = profile.get('effective_date', 'Not Detected')
+
+        # Proper Document Title (Point 2)
+        if len(parties) >= 2:
+            doc_title = (
+                f"{document_type} — {parties[0]} and {parties[1]}, "
+                f"dated {effective_date}"
+            )
+        elif len(parties) == 1:
+            doc_title = f"{document_type} — {parties[0]}, dated {effective_date}"
+        else:
+            doc_title = f"{document_type} — dated {effective_date}"
 
         # ---------------------------
-        # COVER PAGE
+        # FIRM HEADER BLOCK (Point 1)
         # ---------------------------
-        doc.add_heading('RAGForge Legal Intelligence Review', 0)
-        
-        doc.add_paragraph(f"Document Name: {document_id}")
-        doc.add_paragraph(f"Generated On: {datetime.now().strftime('%d %B %Y, %H:%M')}")
-        
-        profile = insight_data.get('contract_profile', {})
-        if profile:
-            doc.add_heading('Contract Overview', level=1)
-            p = doc.add_paragraph()
-            p.add_run("Agreement Type: ").bold = True
-            p.add_run(f"{profile.get('document_type', 'N/A')}\n")
-            
-            p.add_run("Parties: ").bold = True
-            p.add_run(f"{', '.join(profile.get('parties', []))}\n")
-            
-            p.add_run("Governing Law: ").bold = True
-            p.add_run(f"{profile.get('governing_law', 'N/A')}")
+        header_title = doc.add_heading('CONTRACT REVIEW MEMORANDUM', 0)
+        header_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+        meta_table = doc.add_table(rows=4, cols=2)
+        meta_table.style = 'Table Grid'
+
+        # Populate Metadata Table
+        rows = [
+            ("Prepared by", "RAGForge Legal Intelligence"),
+            ("Review date", datetime.now().strftime('%d %B %Y')),
+            ("Document reviewed", doc_title),
+            ("Prepared for", "Client (Confidential)")
+        ]
+
+        for i, (label, value) in enumerate(rows):
+            meta_table.rows[i].cells[0].text = label
+            meta_table.rows[i].cells[0].paragraphs[0].runs[0].bold = True
+            meta_table.rows[i].cells[1].text = value
+
+        doc.add_paragraph("\n")
+
+        # ---------------------------
+        # EXECUTIVE SUMMARY (Point 4)
+        # ---------------------------
+        doc.add_heading('EXECUTIVE SUMMARY', level=1)
+        formal_summary = (
+            insight_data.get('formal_executive_summary') or
+            insight_data.get('summary', 'Summary not available.')
+        )
+        doc.add_paragraph(formal_summary)
+
+        # ---------------------------
+        # CLAUSE SCORECARD (Point 3)
+        # ---------------------------
+        scorecard = insight_data.get('clause_scorecard', [])
+        if scorecard:
+            doc.add_heading('CLAUSE OVERVIEW & SCORECARD', level=1)
+            score_table = doc.add_table(rows=1, cols=3)
+            score_table.style = 'Table Grid'
+            hdr_cells = score_table.rows[0].cells
+            hdr_cells[0].text = 'Clause Type'
+            hdr_cells[1].text = 'Status'
+            hdr_cells[2].text = 'Risk Level'
+            for cell in hdr_cells:
+                cell.paragraphs[0].runs[0].bold = True
+
+            for item in scorecard:
+                row = score_table.add_row().cells
+                row[0].text = item.get('clause_type', 'N/A')
+                status = item.get('status', 'Missing')
+                row[1].text = status
+                row[2].text = item.get('risk_level', 'None')
+
+                # Apply background colors (Point 3)
+                if status == 'Present':
+                    self._set_cell_background(row[1], "C6EFCE")  # Light Green
+                elif status == 'Partial':
+                    self._set_cell_background(row[1], "FFEB9C")  # Light Amber
+                else:
+                    self._set_cell_background(row[1], "FFC7CE")  # Light Red
 
         doc.add_page_break()
 
         # ---------------------------
-        # EXECUTIVE SUMMARY
-        # ---------------------------
-        insights = insight_data.get('insights', {})
-        if insights.get('summary'):
-            doc.add_heading('Executive Summary', level=1)
-            doc.add_paragraph(insights['summary'])
-
-        # ---------------------------
-        # FINDINGS & RISKS (Pass 2 output)
+        # DETAILED FINDINGS (Point 5)
         # ---------------------------
         findings = insight_data.get('review_findings', [])
-        
-        missing_protections = [f for f in findings if f.get('finding_type') == 'missing_protection']
-        active_risks = [f for f in findings if f.get('finding_type') != 'missing_protection']
+        if findings:
+            doc.add_heading('DETAILED AUDIT FINDINGS', level=1)
 
-        doc.add_heading('Key Risks & Missing Protections', level=1)
+            for f in findings:
+                # Severity-based styling (Point 5)
+                sev = str(f.get('severity', 'low')).lower()
+                title_p = doc.add_paragraph()
+                title_run = title_p.add_run(
+                    f"[{sev.upper()}] {f.get('title', 'Finding')}"
+                )
+                title_run.bold = True
 
-        if missing_protections:
-            doc.add_heading('Missing Protections (Needs Drafting)', level=2)
-            table = doc.add_table(rows=1, cols=3)
-            table.style = 'Light Shading Accent 1'
-            hdr_cells = table.rows[0].cells
-            hdr_cells[0].text = 'Severity'
-            hdr_cells[1].text = 'Protection Type'
-            hdr_cells[2].text = 'Legal Analysis'
+                if sev == 'high':
+                    # Deep Red
+                    title_run.font.color.rgb = RGBColor(0xC0, 0x00, 0x00)
+                elif sev == 'medium':
+                    # Dark Amber
+                    title_run.font.color.rgb = RGBColor(0xD9, 0x77, 0x06)
 
-            for f in missing_protections:
-                row = table.add_row()
-                row.cells[0].text = str(f.get('severity', '')).upper()
-                row.cells[1].text = str(f.get('title', ''))
-                row.cells[2].text = str(f.get('explanation', ''))
+                # Explanation
+                doc.add_paragraph(f.get('explanation', ''))
 
-        if active_risks:
-            doc.add_heading('Active Risks (Requires Negotiation)', level=2)
-            table = doc.add_table(rows=1, cols=3)
-            table.style = 'Light Shading Accent 2'
-            hdr_cells = table.rows[0].cells
-            hdr_cells[0].text = 'Severity'
-            hdr_cells[1].text = 'Clause Reference'
-            hdr_cells[2].text = 'Legal Issue & Quotes'
-
-            for f in active_risks:
-                row = table.add_row()
-                row.cells[0].text = str(f.get('severity', '')).upper()
-                
-                refs = f.get('clause_refs', [])
-                row.cells[1].text = ", ".join(refs) if isinstance(refs, list) else str(refs)
-                
+                # Source Quotes (Indented, italic, grey)
                 quotes = f.get('source_quotes', [])
-                q_text = "\\n\\nSource: \\\"" + "\\\", \\\"".join(quotes) + "\\\"" if quotes else ""
-                row.cells[2].text = str(f.get('explanation', '')) + q_text
+                if quotes:
+                    for quote in quotes:
+                        q_p = doc.add_paragraph()
+                        q_p.paragraph_format.left_indent = Inches(0.3)
+                        q_run = q_p.add_run(f'"{quote}"')
+                        q_run.italic = True
+                        q_run.font.color.rgb = RGBColor(128, 128, 128)
 
-        doc.add_page_break()
+                # Border (thin horizontal line)
+                hr_p = doc.add_paragraph("_" * 70)
+                hr_p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
         # ---------------------------
-        # LEGAL DISCLAIMER (UPL Shield)
+        # FOOTER & DISCLAIMER (Point 6)
         # ---------------------------
-        doc.add_heading('System Information & Legal Disclaimer', level=2)
-        disclaimer = doc.add_paragraph()
-        run = disclaimer.add_run(
-            "IMPORTANT NOTICE: This report was automatically generated by RAGForge Legal Intelligence Engine. "
-            "It is designed to assist attorneys in accelerating human document review. "
-            "This report does NOT constitute legal advice. You must verify all findings and source quotes "
-            "manually before advising clients. Artificial Intelligence can produce inaccurate or 'hallucinated' outputs."
-        )
-        run.italic = True
-        run.font.color.rgb = RGBColor(128, 128, 128)
+        section = doc.sections[0]
+        footer = section.footer
+
+        footer_p = footer.paragraphs[0]
+        footer_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         
+        # Disclaimer (italics, grey)
+        disclaimer_text = (
+            "Disclaimer: This memorandum is prepared using AI-assisted "
+            "analysis and does not constitute legal advice. "
+            "Findings require review by a qualified legal professional."
+        )
+        run = footer_p.add_run(disclaimer_text)
+        run.font.size = Pt(8)
+        run.font.color.rgb = RGBColor(128, 128, 128)
+        run.italic = True
+
+        # Page numbering (Point 6)
+        page_p = footer.add_paragraph()
+        page_p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        self._add_page_number(page_p)
+        page_p.runs[0].font.size = Pt(8)
+        page_p.runs[0].font.color.rgb = RGBColor(128, 128, 128)
+
         # Save mechanism
         safe_name = document_id.replace(' ', '_').replace('/', '_')
-        output_path = os.path.join(self.output_dir, f"RAG_Report_{safe_name}.docx")
+        output_prefix = "RAG_Report_"
+        output_path = os.path.join(
+            self.output_dir,
+            f"{output_prefix}{safe_name}.docx"
+        )
         doc.save(output_path)
-        
+
         return output_path

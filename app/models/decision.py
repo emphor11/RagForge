@@ -43,13 +43,21 @@ class ChatResponse(BaseModel):
     found_in_document: bool
 
 
+class ClauseScorecardItem(BaseModel):
+    clause_type: str
+    status: Literal["Present", "Partial", "Missing"]
+    risk_level: Literal["High", "Medium", "Low", "None"]
+
+
 class DecisionOutput(BaseModel):
     reasoning: str
     summary: str
+    formal_executive_summary: Optional[str] = None
     key_insights: List[Insight]
     risks: List[Risk]
     opportunities: List[Opportunity]
     recommended_actions: List[Action]
+    clause_scorecard: List[ClauseScorecardItem] = []
     overall_confidence: float
     context_quality: Literal["full", "partial", "insufficient"]
     context_gap: Optional[str] = None
