@@ -5,7 +5,6 @@ import {
   BarChart3,
   FolderOpen,
   TrendingUp,
-  Settings,
   FileText,
   Scale,
 } from "lucide-react";
@@ -72,12 +71,6 @@ const Sidebar = ({ currentDocId }) => {
             {label}
           </NavLink>
         ))}
-        <button className="sidebar-item">
-          <span className="sidebar-item-icon">
-            <Settings />
-          </span>
-          Settings
-        </button>
 
         <div className="sidebar-section-title">Recent Documents</div>
 
