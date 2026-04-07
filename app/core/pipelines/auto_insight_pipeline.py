@@ -74,9 +74,11 @@ class AutoInsightPipeline:
         review_findings = self.contract_analyzer.spot_issues(contract_profile, clause_records)
 
         # Step 6: Generate general structure/opportunities intelligence
+        # Pass the detected document type to allow for type-specific benchmarking
         insights = self.generator.generate(
             docs=selected_docs,
-            mode="document"
+            mode="document",
+            document_type=contract_profile.get("document_type")
         )
 
         # Step 7: Evaluate Insights

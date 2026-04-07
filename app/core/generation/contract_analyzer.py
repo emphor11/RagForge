@@ -58,6 +58,18 @@ class LLMContractAnalyzer:
         self.api_key = settings.GROQ_API_KEY
         if not self.api_key:
             raise ValueError("Missing GROQ_API_KEY.")
+        self.checklists = self._load_checklists()
+
+    def _load_checklists(self) -> dict:
+        import os
+        path = "app/resources/checklists.json"
+        if os.path.exists(path):
+            try:
+                with open(path, "r") as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"[LLMContractAnalyzer] Error loading checklists: {e}")
+        return {}
 
     def _call_llm(self, prompt: str, schema_model: type[BaseModel]) -> dict:
         client = Groq(api_key=self.api_key)
@@ -161,6 +173,11 @@ DOCUMENT CHUNKS:
         clause_types_present = set(c["type"].lower() for c in clauses)
         clauses_present_list = ", ".join(clause_types_present)
 
+        # Select Checklist based on document type
+        doc_type = profile.get("document_type", "General")
+        checklist = self.checklists.get(doc_type) or self.checklists.get("General") or []
+        checklist_str = "\n".join([f"{i+1}. {item}" for i, item in enumerate(checklist)])
+
         prompt = f"""
 You are an expert corporate lawyer conducting a contract review audit for an Indian-market agreement.
 
@@ -169,23 +186,15 @@ The following clause types were DETERMINISTICALLY FOUND in this document:
 [{clauses_present_list}]
 
 - Only flag a clause as missing if it DOES NOT appear in the list above. Never contradict this list.
-- If a core protection (like 'liability_cap' or 'indemnification') is NOT in the list above, flag as 'missing_protection'.
+- Only evaluate the checklist items relevant to a {doc_type}.
+- If a core protection from the checklist below is NOT in the list above, flag as 'missing_protection'.
 - If a recommended action addresses a missing clause, set the source to DERIVED_FROM_MISSING:[clause_type]. Only use MISSING_CLAUSE on the risk finding itself.
 
-### LEGAL CHECKLIST (Evaluate every item below):
-1. Limitation of liability (Is it present? Uncapped? Mutual?)
-2. Indemnification (IP, third-party, data breach)
-3. Warranty on deliverables + defect cure period
-4. Pre-existing IP carve-out
-5. Payment milestones & penalty rate (>18% interest is aggressive)
-6. Force majeure (definition + notice + duration)
-7. Internal consistency (do notice periods match cure windows?)
-8. Data protection obligations (DPDPA 2023 for Indian contracts)
-9. Termination consequences (IP return, payment on exit)
-10. Subcontracting liability chain
+### {doc_type} LEGAL CHECKLIST (Evaluate every item below):
+{checklist_str}
 
 Look for:
-1. 'missing_protection' (Absent clauses).
+1. 'missing_protection' (Absent clauses from the checklist).
 2. 'risk' (Uncapped liability, high interest, non-mutual terms, internal contradictions).
 3. 'negotiation_point' (Notice periods, restrictive clauses).
 
@@ -203,3 +212,4 @@ IDENTIFIED CLAUSES:
             finding["reviewer_note"] = ""
             
         return raw_findings
+

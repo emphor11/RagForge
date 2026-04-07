@@ -1,0 +1,50 @@
+{
+  "NDA": [
+    "Confidentiality scope and definition",
+    "Permitted disclosures and exclusions",
+    "Term and post-termination confidentiality duration",
+    "Return or destruction of information obligations",
+    "Remedies for breach (injunctive relief)",
+    "Governing law and jurisdiction",
+    "Non-solicitation (if applicable to the business context)",
+    "Intellectual Property ownership (clarifying no rights transfer)"
+  ],
+  "Master Services Agreement (MSA)": [
+    "Limitation of liability (direct vs indirect, caps)",
+    "Indemnification (IP, third-party claims, data breach)",
+    "Service warranties and performance standards (SLAs)",
+    "Intellectual Property rights and deliverables ownership",
+    "Payment terms, milestones, and late payment interest",
+    "Force Majeure (definition and notice)",
+    "Data protection (GDPR/DPDPA 2023 compliance)",
+    "Termination for convenience vs cause",
+    "Subcontracting rights and liability"
+  ],
+  "Employment Agreement": [
+    "Job role, responsibilities, and reporting structure",
+    "Compensation, bonus, and benefits structure",
+    "Probation period and notice period",
+    "Confidentiality and IP assignment (Work for Hire)",
+    "Non-compete and Non-solicitation covenants (Indian §27 validity)",
+    "Grounds for termination and severance",
+    "Leave policy and work hours",
+    "Disciplinary and dispute resolution mechanisms"
+  ],
+  "Statement of Work (SOW)": [
+    "Detailed scope of work and deliverables",
+    "Project timelines and phases",
+    "Acceptance criteria for deliverables",
+    "Payment milestones and fee structure",
+    "Resource requirements and dependencies",
+    "Change request process",
+    "SOW-specific termination rights"
+  ],
+  "General": [
+    "Standard Limitation of Liability",
+    "General Indemnification",
+    "Confidentiality and Data Protection",
+    "Term and Termination",
+    "Governing Law and Dispute Resolution",
+    "Force Majeure"
+  ]
+}

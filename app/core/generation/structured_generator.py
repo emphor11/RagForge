@@ -36,10 +36,19 @@ class StructuredGenerator:
     def __init__(self):
         self.api_key = settings.GROQ_API_KEY
         self.standard_clauses = self._load_standard_clauses()
+        self.checklists = self._load_checklists()
 
     def _load_standard_clauses(self) -> dict:
         import os
         path = "app/resources/standard_clauses.json"
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                return json.load(f)
+        return {}
+
+    def _load_checklists(self) -> dict:
+        import os
+        path = "app/resources/checklists.json"
         if os.path.exists(path):
             with open(path, "r") as f:
                 return json.load(f)
@@ -80,7 +89,7 @@ class StructuredGenerator:
 
         return data
 
-    def generate(self, query: Optional[str] = None, docs: Optional[List[str]] = None, mode: str = "query", retries: int = 3) -> dict:
+    def generate(self, query: Optional[str] = None, docs: Optional[List[str]] = None, mode: str = "query", document_type: Optional[str] = None, retries: int = 3) -> dict:
         if not self.api_key:
             raise ValueError("Missing GROQ_API_KEY. Set it in the environment before generating insights.")
 
@@ -94,10 +103,26 @@ class StructuredGenerator:
 
         from app.core.generation.prompts import SYSTEM_PROMPT, USER_PROMPT_TEMPLATE, CHAT_PROMPT_TEMPLATE
 
+        # Prepare document-type specific instructions
+        type_instruction = ""
+        if mode == "document" and document_type:
+            checklist = self.checklists.get(document_type) or self.checklists.get("General") or []
+            checklist_items = "\n".join([f"- {item}" for item in checklist])
+            type_instruction = f"""
+### {document_type} SPECIFIC GUIDELINES:
+This document is classified as a {document_type}. 
+Focus your analysis strictly on the following core requirements:
+{checklist_items}
+
+Note: If a global mandate (like Indian Data Protection) is NOT in the list above, do not mark the context as 'partial' or 'insufficient' just because it is missing. Only evaluate what is required for a {document_type}.
+"""
+
         selected_user_template = CHAT_PROMPT_TEMPLATE if mode == "query" else USER_PROMPT_TEMPLATE
 
         full_prompt = (
             SYSTEM_PROMPT
+            + "\n\n"
+            + type_instruction
             + "\n\n"
             + selected_user_template.format(
                 context=context,
@@ -129,6 +154,7 @@ class StructuredGenerator:
                 
                 # Phase 3: Inject Mitigation Suggestions
                 return self._post_process_mitigation(output_dict)
+
 
             except Exception as e:
                 print(f"[Attempt {attempt + 1}] Intelligence generation failed: {e}")
