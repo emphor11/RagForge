@@ -485,39 +485,81 @@ const DocumentAnalysis = () => {
         </div>
       )}
 
+      {/* ===== REJECTION UI (Non-Legal Document) ===== */}
+      {contractProfile?.is_legal_document === false && (
+        <div className="card" style={{ border: '2px solid var(--danger)', background: 'rgba(239, 68, 68, 0.05)', marginBottom: 'var(--section-gap)' }}>
+          <div className="card-body" style={{ textAlign: 'center', padding: '48px 24px' }}>
+            <div style={{ color: 'var(--danger)', marginBottom: '16px' }}>
+              <AlertTriangle size={48} />
+            </div>
+            <div className="empty-state-title" style={{ fontSize: '20px', color: 'var(--danger)', fontWeight: 600 }}>
+              Non-Legal Document Detected
+            </div>
+            <p className="empty-state-desc" style={{ maxWidth: '600px', margin: '12px auto 24px', fontSize: '15px' }}>
+              RAGForge v2 is a specialized legal intelligence platform optimized for formal legal agreements (NDAs, MSAs, SOWs, etc.). 
+              <br /><br />
+              This document does not appear to contain a standard contractual structure or binding legal relationship. To protect the accuracy of your audits, we have skipped the legal analysis for this file.
+            </p>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+              <button 
+                className="btn btn-secondary"
+                onClick={() => window.history.back()}
+              >
+                Go Back
+              </button>
+              <button 
+                className="btn btn-primary"
+                onClick={() => window.location.href = '/'}
+              >
+                Return to Dashboard
+              </button>
+            </div>
+            
+            {result?.summary && (
+              <div style={{ marginTop: '32px', textAlign: 'left', borderTop: '1px solid var(--border-light)', paddingTop: '24px' }}>
+                <div className="card-title" style={{ fontSize: '14px', marginBottom: '8px', color: 'var(--text-primary)' }}>General Summary (Informational Only)</div>
+                <p style={{ fontSize: '13px', color: 'var(--text-muted)', lineHeight: '1.6' }}>{result.summary}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ===== STATS ROW ===== */}
-      <div className="stats-row">
-        <div className="stat-card">
-          <div className="stat-label">
-            {isContractReview ? "Analyzed Agreement" : "Analyzing File"}
+      {contractProfile?.is_legal_document !== false && (
+        <div className="stats-row">
+          <div className="stat-card">
+            <div className="stat-label">
+              {isContractReview ? "Analyzed Agreement" : "Analyzing File"}
+            </div>
+            <div className="stat-value-sm">{document_id}</div>
           </div>
-          <div className="stat-value-sm">{document_id}</div>
+          <div className="stat-card">
+            <div className="stat-label">
+              {isContractReview ? "Review Findings" : "Grounded Insights"}
+            </div>
+            <div className="stat-value">
+              {isContractReview ? contractFindings.length : (result.key_insights?.length || 0)}
+            </div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label">
+              {isContractReview ? "Clauses Indexed" : "Avg Grounding"}
+            </div>
+            <div className="stat-value">
+              {isContractReview
+                ? contractClauses.length
+                : `${(result.overall_confidence * 100).toFixed(0)}%`}
+            </div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label">Review Audit</div>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              {renderProgressRing(auditScore, 52, 4)}
+            </div>
+          </div>
         </div>
-        <div className="stat-card">
-          <div className="stat-label">
-            {isContractReview ? "Review Findings" : "Grounded Insights"}
-          </div>
-          <div className="stat-value">
-            {isContractReview ? contractFindings.length : (result.key_insights?.length || 0)}
-          </div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">
-            {isContractReview ? "Clauses Indexed" : "Avg Grounding"}
-          </div>
-          <div className="stat-value">
-            {isContractReview
-              ? contractClauses.length
-              : `${(result.overall_confidence * 100).toFixed(0)}%`}
-          </div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Review Audit</div>
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            {renderProgressRing(auditScore, 52, 4)}
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* ===== ACTIONS ROW ===== */}
       {isContractReview && (

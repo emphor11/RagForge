@@ -63,6 +63,29 @@ class AutoInsightPipeline:
         # Extract profile from preamble/intro context
         contract_profile = self.contract_analyzer.extract_profile(document_id, context)
         
+        # --- LEGAL GUARDRAIL CHECK ---
+        if not contract_profile.get("is_legal_document", True):
+            print(f"[GUARDRAIL] Non-legal document detected for {document_id}. Skipping audit.")
+            combined_result = {
+                "contract_profile": contract_profile,
+                "clauses": [],
+                "review_findings": [],
+                "insights": {
+                    "summary": "Analysis skipped: This document does not appear to be a formal legal contract or agreement. RAGForge is optimized for legal documents and cannot provide a reliable audit for this file type.",
+                    "key_insights": [],
+                    "risks": [],
+                    "recommended_actions": [],
+                    "context_quality": "insufficient",
+                    "context_gap": "Document is not a legal agreement."
+                },
+                "evaluation": {"score": 0, "status": "fail", "recommendation": "Please upload a valid legal contract."},
+                "review_audit": {"score": 0, "status": "fail"},
+                "retrieval_debug": retrieval_debug,
+                "raw_text": raw_text,
+            }
+            self.insight_store.save(document_id, combined_result)
+            return combined_result
+
         # Extract specific clauses from chunks
         clause_records = self.contract_analyzer.extract_clauses(chunks)
         contract_profile["clause_index"] = [

@@ -14,6 +14,7 @@ class ProfileExtractionModel(BaseModel):
     renewal_mechanics: str = Field(default="", description="How the contract renews (e.g., 'Automatic 1 year', 'Mutual written agreement').")
     payment_structure: str = Field(default="", description="Summary of fees or payment milestones (e.g., 'Milestone based', '$5,000 monthly', 'Not Disclosed').")
     classification_confidence: float = Field(description="Confidence score between 0.0 and 1.0 representing how certain you are of the document type and extraction.")
+    is_legal_document: bool = Field(default=True, description="Whether this document appears to be a formal legal agreement or contract.")
 
 class ClauseExtractionModel(BaseModel):
     class Clause(BaseModel):
@@ -125,6 +126,11 @@ class LLMContractAnalyzer:
         prompt = f"""
 Analyze the following document preamble and introductory text to extract the core contract profile metadata.
 Find the legal entities (parties) involved, the effective date, any mention of term/duration, governing law, and payment terms. 
+
+### CRITICAL GUARDRAIL:
+Determine if this document is a formal legal agreement/contract (e.g., NDA, MSA, Lease, SOW, Employment Agreement, Terms of Service). 
+Set 'is_legal_document' to false if it is a general document like a news article, recipe, story, academic paper, or random text that does not create a binding legal relationship.
+
 You MUST use the following assigned contract type unless you find explicit evidence otherwise: {deterministic_type}
 
 DOCUMENT TEXT:

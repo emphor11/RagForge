@@ -144,6 +144,25 @@ class InsightStore:
 
         return finding
 
+    def delete(self, document_id: str):
+        # 1. Remove JSON File
+        path = os.path.join(self.base_path, f"{document_id}.json")
+        if os.path.exists(path):
+            os.remove(path)
+
+        # 2. Remove Postgres Metadata
+        db = SessionLocal()
+        try:
+            db.query(DocumentMetadata).filter(
+                DocumentMetadata.document_id == document_id
+            ).delete()
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            print(f"Postgres Delete Error: {e}")
+        finally:
+            db.close()
+
     def list_all(self):
         docs = []
 

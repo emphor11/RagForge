@@ -97,10 +97,8 @@ def delete_document(document_id: str):
     if not data:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    # Remove from insights DB
-    path = os.path.join(store.base_path, f"{document_id}.json")
-    if os.path.exists(path):
-        os.remove(path)
+    # Remove from insights DB and Postgres
+    store.delete(document_id)
 
     # Remove from Vector DB
     chroma = ChromaStore()

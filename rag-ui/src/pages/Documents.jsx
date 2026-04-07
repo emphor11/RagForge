@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../config";
-import { FolderOpen, AlertTriangle } from "lucide-react";
+import { FolderOpen, AlertTriangle, Trash2 } from "lucide-react";
 
 const Documents = () => {
   const [documents, setDocuments] = useState([]);
@@ -25,6 +25,28 @@ const Documents = () => {
       setError("Failed to load document library");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDelete = async (id, e) => {
+    e.stopPropagation();
+    if (!window.confirm(`Are you sure you want to delete "${id}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/documents/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+
+      if (res.ok) {
+        setDocuments(documents.filter((doc) => doc.id !== id));
+      } else {
+        alert("Failed to delete document");
+      }
+    } catch (err) {
+      console.error("Delete failed", err);
+      alert("Something went wrong while deleting");
     }
   };
 
@@ -127,16 +149,25 @@ const Documents = () => {
                         )}
                       </td>
                       <td>
-                        <span
-                          className="table-link"
-                          onClick={() =>
-                            navigate(
-                              `/documents/${encodeURIComponent(doc.id)}`
-                            )
-                          }
-                        >
-                          Review →
-                        </span>
+                        <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
+                          <span
+                            className="table-link"
+                            onClick={() =>
+                              navigate(
+                                `/documents/${encodeURIComponent(doc.id)}`
+                              )
+                            }
+                          >
+                            Review →
+                          </span>
+                          <button
+                            className="btn-icon btn-icon-danger"
+                            title="Delete Document"
+                            onClick={(e) => handleDelete(doc.id, e)}
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

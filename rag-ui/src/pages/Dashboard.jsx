@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../config";
-import { FileText, Upload, AlertTriangle } from "lucide-react";
+import { FileText, Upload, AlertTriangle, FolderOpen, Trash2 } from "lucide-react";
 
 const Dashboard = ({ onUploadSuccess }) => {
   const [file, setFile] = useState(null);
@@ -27,6 +27,28 @@ const Dashboard = ({ onUploadSuccess }) => {
       console.error("Failed to fetch recent documents", err);
     } finally {
       setDocsLoading(false);
+    }
+  };
+
+  const handleDelete = async (id, e) => {
+    e.stopPropagation();
+    if (!window.confirm(`Are you sure you want to delete "${id}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/documents/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+
+      if (res.ok) {
+        setRecentDocs(recentDocs.filter((doc) => doc.id !== id));
+      } else {
+        alert("Failed to delete document");
+      }
+    } catch (err) {
+      console.error("Delete failed", err);
+      alert("Something went wrong while deleting");
     }
   };
 
@@ -186,16 +208,25 @@ const Dashboard = ({ onUploadSuccess }) => {
                         )}
                       </td>
                       <td>
-                        <span
-                          className="table-link"
-                          onClick={() =>
-                            navigate(
-                              `/documents/${encodeURIComponent(doc.id)}`
-                            )
-                          }
-                        >
-                          Review →
-                        </span>
+                        <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
+                          <span
+                            className="table-link"
+                            onClick={() =>
+                              navigate(
+                                `/documents/${encodeURIComponent(doc.id)}`
+                              )
+                            }
+                          >
+                            Review →
+                          </span>
+                          <button
+                            className="btn-icon btn-icon-danger"
+                            title="Delete Document"
+                            onClick={(e) => handleDelete(doc.id, e)}
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
