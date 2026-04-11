@@ -17,13 +17,24 @@ class InsightStore:
             data["uploaded_at"] = time.time()
 
         # 1. Save to Supabase Storage (Cloud JSON)
-        json_data = json.dumps(data, indent=2).encode('utf-8')
-        remote_path = f"{self.folder}/{document_id}.json"
-        self.storage.upload_bytes(json_data, remote_path)
+        if self.storage.is_configured():
+            try:
+                json_data = json.dumps(data, indent=2).encode('utf-8')
+                remote_path = f"{self.folder}/{document_id}.json"
+                self.storage.upload_bytes(json_data, remote_path)
+            except Exception as e:
+                print(f"❌ Supabase Storage Error: {e}")
+        else:
+            print(f"⚠️ Skipping cloud save for {document_id} (Storage not configured)")
 
         # 2. Sync to Postgres (Supabase/Neon)
+        if not SessionLocal:
+            print("⚠️ Skipping database sync (Postgres not configured)")
+            return
+
         db = SessionLocal()
         try:
+            from app.models.audit import DocumentMetadata
             meta = db.query(DocumentMetadata).filter(DocumentMetadata.document_id == document_id).first()
             if not meta:
                 profile = data.get("contract_profile", {})
@@ -45,6 +56,9 @@ class InsightStore:
             db.close()
 
     def load(self, document_id: str):
+        if not self.storage.is_configured():
+            return None
+            
         try:
             remote_path = f"{self.folder}/{document_id}.json"
             bytes_data = self.storage.download_file(remote_path)
@@ -62,26 +76,33 @@ class InsightStore:
         finding["status"] = status
         self.save(document_id, data)
 
-        db = SessionLocal()
-        try:
-            log = AuditLog(
-                document_id=document_id,
-                finding_title=finding.get("title", "Untitled"),
-                finding_type=finding.get("finding_type", "risk"),
-                status=status,
-                user_id=user_id,
-                timestamp=datetime.now(timezone.utc),
-            )
-            db.add(log)
-            db.commit()
-        except Exception as e:
-            db.rollback()
-        finally:
-            db.close()
+        if SessionLocal:
+            db = SessionLocal()
+            try:
+                log = AuditLog(
+                    document_id=document_id,
+                    finding_title=finding.get("title", "Untitled"),
+                    finding_type=finding.get("finding_type", "risk"),
+                    status=status,
+                    user_id=user_id,
+                    timestamp=datetime.now(timezone.utc),
+                )
+                db.add(log)
+                db.commit()
+            except Exception as e:
+                db.rollback()
+            finally:
+                db.close()
+        else:
+            print("⚠️ Skipping audit log (Postgres not configured)")
         return finding
 
     def list_all(self):
         docs = []
+        if not self.storage.is_configured():
+            print("⚠️ Cannot list documents: Storage not configured")
+            return []
+            
         try:
             files = self.storage.list_files(self.folder)
             for f in files:

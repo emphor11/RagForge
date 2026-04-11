@@ -11,26 +11,43 @@ class QdrantStore:
         url = os.getenv("Quadrant_Endpoint")
         api_key = os.getenv("Quadrant_API_KEY")
         
-        self.client = QdrantClient(url=url, api_key=api_key)
-        self.collection_name = collection_name
-        
-        # Ensure collection exists
-        self._ensure_collection()
+        if not url:
+            print("⚠️ WARNING: Quadrant_Endpoint missing. Vector search features will be limited.")
+            self.client = None
+        else:
+            try:
+                self.client = QdrantClient(url=url, api_key=api_key)
+                self.collection_name = collection_name
+                # Ensure collection exists
+                self._ensure_collection()
+            except Exception as e:
+                print(f"❌ Failed to initialize Qdrant client: {e}")
+                self.client = None
+
+    def is_configured(self):
+        return self.client is not None
 
     def _ensure_collection(self):
-        collections = self.client.get_collections().collections
-        exists = any(c.name == self.collection_name for c in collections)
+        if not self.is_configured(): return
         
-        if not exists:
-            self.client.create_collection(
-                collection_name=self.collection_name,
-                vectors_config=models.VectorParams(
-                    size=384, # Size for all-MiniLM-L6-v2
-                    distance=models.Distance.COSINE
-                ),
-            )
+        try:
+            collections = self.client.get_collections().collections
+            exists = any(c.name == self.collection_name for c in collections)
+            
+            if not exists:
+                self.client.create_collection(
+                    collection_name=self.collection_name,
+                    vectors_config=models.VectorParams(
+                        size=384, # Size for all-MiniLM-L6-v2
+                        distance=models.Distance.COSINE
+                    ),
+                )
+        except Exception as e:
+            print(f"❌ Failed to ensure Qdrant collection: {e}")
+            self.client = None
 
     def add_documents(self, chunks, embeddings):
+        if not self.is_configured(): return
         points = []
         for i, (chunk, vector) in enumerate(zip(chunks, embeddings)):
             point_id = str(uuid.uuid4())

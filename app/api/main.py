@@ -38,7 +38,21 @@ app.add_middleware(
 
 @app.get("/health")
 def health_check():
-    return {"status": "healthy", "service": "ragforge-api"}
+    from app.services.supabase_storage import SupabaseStorage
+    from app.db.database import SessionLocal
+    
+    storage = SupabaseStorage()
+    config_status = {
+        "supabase_storage": "configured" if storage.is_configured() else "missing",
+        "postgres_db": "configured" if SessionLocal is not None else "missing",
+        "groq_api": "configured" if os.getenv("GROQ_API_KEY") else "missing",
+    }
+    
+    return {
+        "status": "healthy", 
+        "service": "ragforge-api",
+        "config": config_status
+    }
 
 
 def ensure_generation_ready(generator: StructuredGenerator):
