@@ -15,3 +15,7 @@ sample.pdf
 # OS
 .DS_Store
 insights/
+
+# Generated Files
+exports/
+*.log

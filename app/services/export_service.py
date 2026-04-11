@@ -11,8 +11,7 @@ from docx.oxml.ns import qn
 class ExportService:
     def __init__(self, output_dir: str = "exports"):
         self.output_dir = output_dir
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
+        # No longer creating local directories for the cloud version
 
     def _set_cell_background(self, cell, fill_color):
         """Helper to set cell background color using XML."""
@@ -218,13 +217,21 @@ class ExportService:
         page_p.runs[0].font.size = Pt(8)
         page_p.runs[0].font.color.rgb = RGBColor(128, 128, 128)
 
-        # Save mechanism
+        # ---------------------------
+        # Save mechanism - Modified for Cloud
+        # ---------------------------
+        import io
+        from app.services.supabase_storage import SupabaseStorage
+        
+        target = io.BytesIO()
+        doc.save(target)
+        target.seek(0)
+        
+        storage = SupabaseStorage()
         safe_name = document_id.replace(' ', '_').replace('/', '_')
-        output_prefix = "RAG_Report_"
-        output_path = os.path.join(
-            self.output_dir,
-            f"{output_prefix}{safe_name}.docx"
-        )
-        doc.save(output_path)
-
-        return output_path
+        remote_path = f"exports/{safe_name}.docx"
+        
+        storage.upload_bytes(target.getvalue(), remote_path)
+        
+        # Return the public URL for the download from Supabase
+        return storage.get_public_url(remote_path)

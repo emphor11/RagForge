@@ -1,6 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional
 import shutil
@@ -23,13 +24,21 @@ from sqlalchemy.orm import Session
 
 app = FastAPI()
 
+# Add CORS for production (Vercel)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        os.getenv("FRONTEND_URL", "http://localhost:5173"),
+        "http://localhost:5173", # Local dev
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.get("/health")
+def health_check():
+    return {"status": "healthy", "service": "ragforge-api"}
 
 
 def ensure_generation_ready(generator: StructuredGenerator):
@@ -57,25 +66,32 @@ pipeline = AutoInsightPipeline(
 def upload(file: UploadFile = File(...)):
     ensure_generation_ready(pipeline.generator)
 
-    file_path = f"temp_{file.filename}"
-
+    # 1. Save temporarily to process
+    temp_path = f"temp_{file.filename}"
     try:
-        with open(file_path, "wb") as buffer:
+        with open(temp_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
         document_id = file.filename
-        result = pipeline.run(file_path, document_id)
+        
+        # 2. Upload raw file to Supabase for persistence
+        from app.services.supabase_storage import SupabaseStorage
+        storage = SupabaseStorage()
+        storage.upload_file(temp_path, f"uploads/{document_id}")
+
+        # 3. Run analysis pipeline
+        result = pipeline.run(temp_path, document_id)
+        
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except HTTPException:
-        raise
     except Exception as exc:
+        print(f"❌ Upload Error: {exc}")
         raise HTTPException(
             status_code=500, detail="Failed to upload and analyze document."
         ) from exc
     finally:
-        if os.path.exists(file_path):
-            os.remove(file_path)
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
     return {
         "document_id": document_id,
@@ -592,3 +608,44 @@ def export_contract_report(document_id: str):
             "Content-Disposition": f"attachment; filename=RagForge_Report_{document_id.replace(' ', '_')}.docx"
         },
     )
+
+
+# -----------------------------------------------------------------------------
+# UNIFIED HOSTING: Serve React Frontend
+# -----------------------------------------------------------------------------
+# We assume the user has run 'npm run build' which creates the 'dist' folder
+frontend_path = os.path.join(os.getcwd(), "rag-ui", "dist")
+
+if os.path.exists(frontend_path):
+    # Mount assets folder for static files (JS, CSS, Images)
+    app.mount(
+        "/assets",
+        StaticFiles(directory=os.path.join(frontend_path, "assets")),
+        name="assets",
+    )
+
+    @app.get("/{rest_of_path:path}")
+    async def react_app(rest_of_path: str):
+        """
+        Catch-all route to serve the React SPA.
+        Ensures React Router works on page refresh.
+        """
+        # Exclude common backend paths to avoid confusion
+        if rest_of_path.startswith(("api/", "docs", "openapi.json", "redoc")):
+            raise HTTPException(status_code=404, detail="API route not found")
+
+        index_file = os.path.join(frontend_path, "index.html")
+        if os.path.exists(index_file):
+            return FileResponse(index_file)
+        return {
+            "message": "Frontend build not found. Please run 'npm run build' in rag-ui."
+        }
+
+else:
+
+    @app.get("/{rest_of_path:path}")
+    async def build_missing(rest_of_path: str):
+        return {
+            "mode": "development",
+            "message": "Backend is running, but UI build (dist) not found. Use 'npm run dev' for development.",
+        }
