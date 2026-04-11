@@ -1,4 +1,5 @@
 import re
+from typing import Optional
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 
@@ -96,7 +97,7 @@ def _page_for_offset(page_spans, offset: int):
     return 1
 
 
-def _build_metadata(document_id: str, chunk_id: int, heading: str | None, chunk_text: str, start_char: int, page_spans):
+def _build_metadata(document_id: str, chunk_id: int, heading: Optional[str], chunk_text: str, start_char: int, page_spans):
     return {
         "source": document_id,
         "chunk_id": chunk_id,
