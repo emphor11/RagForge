@@ -7,17 +7,7 @@ from typing import Optional
 from functools import lru_cache
 import shutil
 import os
-from app.core.pipelines.auto_insight_pipeline import AutoInsightPipeline
-from app.db.insight_store import InsightStore
-from app.core.generation.structured_generator import StructuredGenerator
-from app.core.ingestion.pipeline import ingest_document
-from app.evaluation.evaluator import InsightEvaluator
-from app.core.retrieval.vector_retriever import VectorRetriever
-from app.core.retrieval.bm25_retriever import BM25Retriever
-from app.core.retrieval.hybrid_retriever import HybridRetriever
-from app.core.reranking.reranker import Reranker
 from app.core.vector_runtime import get_vector_store
-from app.core.review.legal_query import select_contract_query_docs
 from app.services.export_service import ExportService
 from app.db.database import SessionLocal
 from app.models.audit import AuditLog
@@ -56,7 +46,7 @@ def health_check():
     }
 
 
-def ensure_generation_ready(generator: StructuredGenerator):
+def ensure_generation_ready(generator):
     if not getattr(generator, "api_key", None):
         raise HTTPException(
             status_code=503,
@@ -70,7 +60,13 @@ def root():
 
 
 @lru_cache(maxsize=1)
-def get_pipeline() -> AutoInsightPipeline:
+def get_pipeline():
+    from app.core.pipelines.auto_insight_pipeline import AutoInsightPipeline
+    from app.core.generation.structured_generator import StructuredGenerator
+    from app.core.ingestion.pipeline import ingest_document
+    from app.db.insight_store import InsightStore
+    from app.evaluation.evaluator import InsightEvaluator
+
     return AutoInsightPipeline(
         ingestion_pipeline=ingest_document,
         generator=StructuredGenerator(),
@@ -120,12 +116,16 @@ def upload(file: UploadFile = File(...)):
 
 @app.get("/documents")
 def list_documents():
+    from app.db.insight_store import InsightStore
+
     store = InsightStore()
     return store.list_all()
 
 
 @app.delete("/documents/{document_id}")
 def delete_document(document_id: str):
+    from app.db.insight_store import InsightStore
+
     store = InsightStore()
     data = store.load(document_id)
     if not data:
@@ -141,6 +141,8 @@ def delete_document(document_id: str):
 
 @app.get("/insights/{document_id}")
 def get_insights(document_id: str):
+    from app.db.insight_store import InsightStore
+
     store = InsightStore()
     data = store.load(document_id)
 
@@ -152,6 +154,8 @@ def get_insights(document_id: str):
 
 @app.get("/export/{document_id}")
 def export_docx(document_id: str):
+    from app.db.insight_store import InsightStore
+
     store = InsightStore()
     data = store.load(document_id)
     if not data:
@@ -174,6 +178,8 @@ def export_docx(document_id: str):
 @app.post("/contracts/{document_id}/findings/{idx}/audit")
 def update_finding_audit(document_id: str, idx: int, payload: dict):
     # E.g. {"status": "accepted", "user_id": "test_user"}
+
+    from app.db.insight_store import InsightStore
 
     store = InsightStore()
     new_status = payload.get("status")
@@ -199,6 +205,8 @@ def update_finding_audit(document_id: str, idx: int, payload: dict):
 
 @app.get("/contracts/{document_id}/overview")
 def get_contract_overview(document_id: str):
+    from app.db.insight_store import InsightStore
+
     store = InsightStore()
     data = store.load(document_id)
 
@@ -217,6 +225,8 @@ def get_contract_overview(document_id: str):
 
 @app.get("/contracts/{document_id}/clauses")
 def get_contract_clauses(document_id: str):
+    from app.db.insight_store import InsightStore
+
     store = InsightStore()
     data = store.load(document_id)
 
@@ -243,6 +253,8 @@ def get_contract_clauses(document_id: str):
 
 @app.get("/contracts/{document_id}/risks")
 def get_contract_risks(document_id: str):
+    from app.db.insight_store import InsightStore
+
     store = InsightStore()
     data = store.load(document_id)
 
@@ -260,6 +272,8 @@ def get_contract_risks(document_id: str):
 
 @app.get("/contracts/{document_id}/review-audit")
 def get_contract_review_audit(document_id: str):
+    from app.db.insight_store import InsightStore
+
     store = InsightStore()
     data = store.load(document_id)
 
@@ -278,6 +292,8 @@ def get_contract_review_audit(document_id: str):
 
 @app.get("/reports")
 def get_reports():
+    from app.db.insight_store import InsightStore
+
     store = InsightStore()
     docs = store.list_all()
 
@@ -337,6 +353,7 @@ def get_reports():
 @app.get("/analytics")
 def get_analytics():
     from datetime import datetime, timedelta
+    from app.db.insight_store import InsightStore
 
     store = InsightStore()
     docs = store.list_all()
@@ -411,6 +428,14 @@ class FindingNoteUpdate(BaseModel):
 
 @app.post("/query")
 def query_api(request: QueryRequest):
+    from app.db.insight_store import InsightStore
+    from app.core.review.legal_query import select_contract_query_docs
+    from app.core.retrieval.vector_retriever import VectorRetriever
+    from app.core.retrieval.bm25_retriever import BM25Retriever
+    from app.core.retrieval.hybrid_retriever import HybridRetriever
+    from app.core.reranking.reranker import Reranker
+    from app.core.generation.structured_generator import StructuredGenerator
+
     query = request.query
     document_id = request.document_id
     insight_store = InsightStore()
@@ -490,6 +515,8 @@ def query_api(request: QueryRequest):
 def update_contract_finding_status(
     document_id: str, finding_index: int, payload: FindingStatusUpdate
 ):
+    from app.db.insight_store import InsightStore
+
     allowed_statuses = {
         "open",
         "reviewed",
@@ -520,6 +547,8 @@ def update_contract_finding_status(
 def update_contract_finding_note(
     document_id: str, finding_index: int, payload: FindingNoteUpdate
 ):
+    from app.db.insight_store import InsightStore
+
     store = InsightStore()
     updated_finding = store.update_review_finding_note(
         document_id,

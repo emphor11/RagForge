@@ -1,5 +1,4 @@
 from typing import Dict, Any, List
-from sentence_transformers import SentenceTransformer, util
 from thefuzz import fuzz
 import re
 
@@ -215,6 +214,8 @@ class InsightEvaluator:
             semantic_meta.append((field, claim_kind, claim, weight))
 
         if semantic_pairs:
+            from sentence_transformers import util
+
             embeddings = self._get_embedder().encode(
                 semantic_pairs, convert_to_tensor=True
             )
@@ -244,6 +245,8 @@ class InsightEvaluator:
 
     def _get_embedder(self):
         if self.embedder is None:
+            from sentence_transformers import SentenceTransformer
+
             self.embedder = SentenceTransformer(
                 self.embedder_model_name, local_files_only=True
             )
