@@ -13,15 +13,32 @@ from app.db.database import SessionLocal
 from app.models.audit import AuditLog
 from sqlalchemy.orm import Session
 
+
+def get_allowed_origins():
+    origins = {
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    }
+
+    for env_name in ("FRONTEND_URL", "FRONTEND_URLS"):
+        raw_value = os.getenv(env_name, "")
+        if not raw_value:
+            continue
+
+        for origin in raw_value.split(","):
+            cleaned = origin.strip().rstrip("/")
+            if cleaned:
+                origins.add(cleaned)
+
+    return sorted(origins)
+
+
 app = FastAPI()
 
 # Add CORS for production (Vercel)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        os.getenv("FRONTEND_URL", "http://localhost:5173"),
-        "http://localhost:5173", # Local dev
-    ],
+    allow_origins=get_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
