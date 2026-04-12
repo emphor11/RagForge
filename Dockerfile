@@ -26,6 +26,7 @@ RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTr
 
 # Copy application code
 COPY app/ ./app/
+COPY config/ ./config/
 COPY .env* ./
 
 # Copy built frontend from Stage 1
