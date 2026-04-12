@@ -4,6 +4,7 @@ from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional
+from functools import lru_cache
 import shutil
 import os
 from app.core.pipelines.auto_insight_pipeline import AutoInsightPipeline
@@ -15,7 +16,7 @@ from app.core.retrieval.vector_retriever import VectorRetriever
 from app.core.retrieval.bm25_retriever import BM25Retriever
 from app.core.retrieval.hybrid_retriever import HybridRetriever
 from app.core.reranking.reranker import Reranker
-from app.db.chroma_store import ChromaStore
+from app.core.vector_runtime import get_vector_store
 from app.core.review.legal_query import select_contract_query_docs
 from app.services.export_service import ExportService
 from app.db.database import SessionLocal
@@ -68,16 +69,19 @@ def root():
     return {"status": "ok", "version": "2.0", "message": "RAGForge v2 Engine"}
 
 
-pipeline = AutoInsightPipeline(
-    ingestion_pipeline=ingest_document,
-    generator=StructuredGenerator(),
-    insight_store=InsightStore(),
-    evaluator=InsightEvaluator(),
-)
+@lru_cache(maxsize=1)
+def get_pipeline() -> AutoInsightPipeline:
+    return AutoInsightPipeline(
+        ingestion_pipeline=ingest_document,
+        generator=StructuredGenerator(),
+        insight_store=InsightStore(),
+        evaluator=InsightEvaluator(),
+    )
 
 
 @app.post("/upload")
 def upload(file: UploadFile = File(...)):
+    pipeline = get_pipeline()
     ensure_generation_ready(pipeline.generator)
 
     # 1. Save temporarily to process
@@ -131,8 +135,7 @@ def delete_document(document_id: str):
     store.delete(document_id)
 
     # Remove from Vector DB
-    chroma = ChromaStore()
-    chroma.collection.delete(where={"source": document_id})
+    get_vector_store().delete_documents(source=document_id)
     return {"message": "Document deleted successfully"}
 
 
@@ -418,8 +421,7 @@ def query_api(request: QueryRequest):
         contract_query_docs = select_contract_query_docs(query, stored_contract)
 
     # Fetch docs from store for BM25 (filtered by document_id)
-    store = ChromaStore()
-    all_docs = store.get_all_documents(source=document_id)
+    all_docs = get_vector_store().get_all_documents(source=document_id)
 
     if document_id and not all_docs:
         raise HTTPException(

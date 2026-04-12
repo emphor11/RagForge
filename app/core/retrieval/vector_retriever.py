@@ -1,12 +1,11 @@
 from typing import List, Optional
-from app.core.embeddings.embedder import Embedder
-from app.db.chroma_store import ChromaStore
+from app.core.vector_runtime import get_embedder, get_vector_store
 
 
 class VectorRetriever:
     def __init__(self):
-        self.embedder = Embedder()
-        self.db = ChromaStore()
+        self.embedder = get_embedder()
+        self.db = get_vector_store()
 
     def retrieve(self, query: str, k=5, document_id: Optional[str] = None):
         query_embedding = self.embedder.embed([query])[0]
@@ -14,9 +13,9 @@ class VectorRetriever:
         where = {"source": document_id} if document_id else None
         results = self.db.query(query_embedding, n_results=k, where=where)
 
-        documents = results["documents"][0]
-        metadatas = results["metadatas"][0]
-        distances = results["distances"][0]
+        documents = (results.get("documents") or [[]])[0]
+        metadatas = (results.get("metadatas") or [[]])[0]
+        distances = (results.get("distances") or [[]])[0]
 
         # Convert distance → similarity score
         return [

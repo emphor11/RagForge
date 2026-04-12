@@ -53,3 +53,7 @@ class ChromaStore:
             {"content": doc, "metadata": meta}
             for doc, meta in zip(documents, metadatas)
         ]
+
+    def delete_documents(self, source=None):
+        if source:
+            self.collection.delete(where={"source": source})

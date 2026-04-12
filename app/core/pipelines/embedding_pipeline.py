@@ -1,11 +1,10 @@
-from app.core.embeddings.embedder import Embedder
-from app.db.qdrant_store import QdrantStore  # Import Qdrant instead of Chroma
-
-embedder = Embedder()
-vector_db = QdrantStore()  # Initialize QdrantStore
+from app.core.vector_runtime import get_embedder, get_vector_store
 
 
 def store_chunks(chunks):
     texts = [c["content"] for c in chunks]
-    embeddings = embedder.embed(texts)
-    vector_db.add_documents(chunks, embeddings)
+    if not texts:
+        return
+
+    embeddings = get_embedder().embed(texts)
+    get_vector_store().add_documents(chunks, embeddings)

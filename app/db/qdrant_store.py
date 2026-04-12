@@ -7,19 +7,17 @@ from dotenv import load_dotenv
 class QdrantStore:
     def __init__(self, collection_name="ragforge"):
         load_dotenv()
-        # We use the names from your .env file
-        url = os.getenv("Quadrant_Endpoint")
-        api_key = os.getenv("Quadrant_API_KEY")
-        
+        # Support both the legacy names in the repo and standard Qdrant env names.
+        url = os.getenv("QDRANT_URL") or os.getenv("Quadrant_Endpoint")
+        api_key = os.getenv("QDRANT_API_KEY") or os.getenv("Quadrant_API_KEY")
+        self.collection_name = collection_name
+
         if not url:
-            print("⚠️ WARNING: Quadrant_Endpoint missing. Vector search features will be limited.")
+            print("⚠️ WARNING: Qdrant URL missing. Vector search features will be limited.")
             self.client = None
         else:
             try:
                 self.client = QdrantClient(url=url, api_key=api_key)
-                self.collection_name = collection_name
-                # Ensure collection exists
-                self._ensure_collection()
             except Exception as e:
                 print(f"❌ Failed to initialize Qdrant client: {e}")
                 self.client = None
@@ -47,7 +45,13 @@ class QdrantStore:
             self.client = None
 
     def add_documents(self, chunks, embeddings):
-        if not self.is_configured(): return
+        if not self.is_configured():
+            return
+
+        self._ensure_collection()
+        if not self.is_configured():
+            return
+
         points = []
         for i, (chunk, vector) in enumerate(zip(chunks, embeddings)):
             point_id = str(uuid.uuid4())
@@ -75,21 +79,39 @@ class QdrantStore:
         return sanitized
 
     def query(self, query_embedding, n_results=5, where=None):
-        # We'll implement a simple version of the filter if 'where' is provided later
+        if not self.is_configured():
+            return {"documents": [[]], "metadatas": [[]], "distances": [[]]}
+
+        self._ensure_collection()
+        if not self.is_configured():
+            return {"documents": [[]], "metadatas": [[]], "distances": [[]]}
+
         search_result = self.client.search(
             collection_name=self.collection_name,
             query_vector=query_embedding.tolist(),
             limit=n_results
         )
-        
-        # Format to match your previous ChromaDB output structure
+
+        if where:
+            search_result = [
+                result for result in search_result
+                if all(result.payload.get(key) == value for key, value in where.items())
+            ]
+
         return {
             "documents": [[res.payload["content"] for res in search_result]],
-            "metadatas": [[res.payload for res in search_result]]
+            "metadatas": [[res.payload for res in search_result]],
+            "distances": [[max(0.0, 1.0 - float(res.score)) for res in search_result]],
         }
 
     def get_all_documents(self, source=None):
-        # Simple scroll to get documents
+        if not self.is_configured():
+            return []
+
+        self._ensure_collection()
+        if not self.is_configured():
+            return []
+
         scroll_result = self.client.scroll(
             collection_name=self.collection_name,
             limit=100,
@@ -104,3 +126,25 @@ class QdrantStore:
             ]
         
         return [{"content": p.payload["content"], "metadata": p.payload} for p in scroll_result]
+
+    def delete_documents(self, source=None):
+        if not self.is_configured() or not source:
+            return
+
+        self._ensure_collection()
+        if not self.is_configured():
+            return
+
+        self.client.delete(
+            collection_name=self.collection_name,
+            points_selector=models.FilterSelector(
+                filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="source",
+                            match=models.MatchValue(value=source),
+                        )
+                    ]
+                )
+            ),
+        )
