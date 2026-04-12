@@ -21,3 +21,5 @@ thefuzz
 python-Levenshtein
 qdrant-client
 supabase
+psycopg2-binary
+sqlalchemy

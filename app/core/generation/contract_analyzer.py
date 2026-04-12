@@ -58,8 +58,12 @@ class LLMContractAnalyzer:
     def __init__(self):
         self.api_key = settings.GROQ_API_KEY
         if not self.api_key:
-            raise ValueError("Missing GROQ_API_KEY.")
+            print("⚠️ WARNING: GROQ_API_KEY missing. LLM capabilities will be disabled.")
         self.checklists = self._load_checklists()
+
+    def _ensure_configured(self):
+        if not self.api_key:
+            raise ValueError("Missing GROQ_API_KEY. Set it in the environment before generating insights.")
 
     def _load_checklists(self) -> dict:
         import os
@@ -73,6 +77,7 @@ class LLMContractAnalyzer:
         return {}
 
     def _call_llm(self, prompt: str, schema_model: type[BaseModel]) -> dict:
+        self._ensure_configured()
         client = Groq(api_key=self.api_key)
         
         system_prompt = f"{CONTROL_PROMPT}\n\nYou must strictly adhere to the following JSON schema:\n{schema_model.model_json_schema()}"
