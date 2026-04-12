@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { API_BASE_URL } from "../config";
 import DocumentViewer from "../components/DocumentViewer";
@@ -45,6 +45,7 @@ const DocumentAnalysis = () => {
 
   const [rawText, setRawText] = useState("");
   const [activeQuote, setActiveQuote] = useState(null);
+  const statusFailureCountRef = useRef(0);
 
   useEffect(() => {
     let pollHandle;
@@ -61,6 +62,7 @@ const DocumentAnalysis = () => {
     setLoading(true);
     setAnalysisStatus("loading");
     setAnalysisStage(null);
+    statusFailureCountRef.current = 0;
 
     const bootstrap = async () => {
       const shouldPoll = await loadDocumentState();
@@ -196,13 +198,14 @@ const DocumentAnalysis = () => {
   };
 
   const loadDocumentState = async () => {
-    setError(null);
     try {
       const statusRes = await fetch(
         `${API_BASE_URL}/documents/${encodeURIComponent(document_id)}/status`
       );
 
       if (statusRes.ok) {
+        statusFailureCountRef.current = 0;
+        setError(null);
         const statusData = await statusRes.json();
         setAnalysisStatus(statusData.status || "processing");
         setAnalysisStage(statusData.stage || null);
@@ -222,6 +225,16 @@ const DocumentAnalysis = () => {
       return await loadDocumentInsights();
     } catch (err) {
       console.error("Failed to load document state", err);
+      statusFailureCountRef.current += 1;
+      if (statusFailureCountRef.current < 5) {
+        setAnalysisStatus((current) =>
+          current === "completed" ? current : "processing"
+        );
+        setAnalysisStage("waiting_for_worker");
+        setLoading(false);
+        return true;
+      }
+
       setError("Failed to load document insights. Please make sure the file exists.");
       setLoading(false);
       return false;

@@ -1,5 +1,5 @@
 from app.db.database import engine, Base
-from app.models.audit import AuditLog, DocumentMetadata
+from app.models.audit import AuditLog, DocumentMetadata, JobRecord
 import os
 
 def init_db():

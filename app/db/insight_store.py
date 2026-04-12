@@ -10,6 +10,8 @@ class InsightStore:
     def __init__(self, base_path="insights"):
         self.storage = SupabaseStorage()
         self.folder = "insights" # Folder inside our Supabase bucket
+        self.base_path = base_path
+        os.makedirs(self.base_path, exist_ok=True)
 
     def save(self, document_id: str, data: dict):
         import time
@@ -25,7 +27,9 @@ class InsightStore:
             except Exception as e:
                 print(f"❌ Supabase Storage Error: {e}")
         else:
-            print(f"⚠️ Skipping cloud save for {document_id} (Storage not configured)")
+            local_path = os.path.join(self.base_path, f"{document_id}.json")
+            with open(local_path, "w", encoding="utf-8") as handle:
+                json.dump(data, handle, indent=2)
 
         # 2. Sync to Postgres (Supabase/Neon)
         if not SessionLocal:
@@ -56,15 +60,20 @@ class InsightStore:
             db.close()
 
     def load(self, document_id: str):
-        if not self.storage.is_configured():
+        if self.storage.is_configured():
+            try:
+                remote_path = f"{self.folder}/{document_id}.json"
+                bytes_data = self.storage.download_file(remote_path)
+                return json.loads(bytes_data)
+            except Exception:
+                return None
+
+        local_path = os.path.join(self.base_path, f"{document_id}.json")
+        if not os.path.exists(local_path):
             return None
-            
-        try:
-            remote_path = f"{self.folder}/{document_id}.json"
-            bytes_data = self.storage.download_file(remote_path)
-            return json.loads(bytes_data)
-        except Exception:
-            return None
+
+        with open(local_path, "r", encoding="utf-8") as handle:
+            return json.load(handle)
 
     def update_review_finding_status(self, document_id: str, finding_index: int, status: str, user_id: str = "anonymous"):
         data = self.load(document_id)
@@ -139,6 +148,10 @@ class InsightStore:
                 self.storage.supabase.storage.from_(self.storage.bucket_name).remove([remote_path])
             except Exception as e:
                 print(f"❌ Failed to delete {document_id} from storage: {e}")
+        else:
+            local_path = os.path.join(self.base_path, f"{document_id}.json")
+            if os.path.exists(local_path):
+                os.remove(local_path)
 
         if SessionLocal:
             db = SessionLocal()
@@ -154,24 +167,35 @@ class InsightStore:
 
     def list_all(self):
         docs = []
-        if not self.storage.is_configured():
-            print("⚠️ Cannot list documents: Storage not configured")
-            return []
-            
-        try:
-            files = self.storage.list_files(self.folder)
-            for f in files:
-                if f['name'].endswith(".json"):
-                    doc_id = f['name'].replace(".json", "")
-                    upload_date = self._normalize_upload_date(f.get("created_at"))
-                    docs.append({
-                        "id": doc_id, 
-                        "filename": doc_id, 
-                        "upload_date": upload_date,
-                        "status": "completed",
-                    })
-        except Exception as e:
-            print(f"❌ Error listing files: {e}")
+        if self.storage.is_configured():
+            try:
+                files = self.storage.list_files(self.folder)
+                for f in files:
+                    if f['name'].endswith(".json"):
+                        doc_id = f['name'].replace(".json", "")
+                        upload_date = self._normalize_upload_date(f.get("created_at"))
+                        docs.append({
+                            "id": doc_id, 
+                            "filename": doc_id, 
+                            "upload_date": upload_date,
+                            "status": "completed",
+                        })
+            except Exception as e:
+                print(f"❌ Error listing files: {e}")
+            return docs
+
+        for name in os.listdir(self.base_path):
+            if not name.endswith(".json"):
+                continue
+            local_path = os.path.join(self.base_path, name)
+            docs.append(
+                {
+                    "id": name.replace(".json", ""),
+                    "filename": name.replace(".json", ""),
+                    "upload_date": os.path.getmtime(local_path),
+                    "status": "completed",
+                }
+            )
         return docs
 
     def _normalize_upload_date(self, raw_value):

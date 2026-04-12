@@ -36,7 +36,8 @@ RUN mkdir -p chroma_db insights exports uploads
 
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8000
+ENV SERVICE_MODE=web
 EXPOSE 8000
 
-# Run with Uvicorn
-CMD ["sh", "-c", "uvicorn app.api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Run either the web API or the background worker.
+CMD ["sh", "-c", "if [ \"$SERVICE_MODE\" = \"worker\" ]; then python -m app.worker; else uvicorn app.api.main:app --host 0.0.0.0 --port ${PORT:-8000}; fi"]

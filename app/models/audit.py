@@ -35,3 +35,24 @@ class DocumentMetadata(Base):
     document_type = Column(String(100))
     uploaded_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     status = Column(String(50), default="reviewed")
+
+
+class JobRecord(Base):
+    """
+    Durable job state for asynchronous document analysis.
+    """
+
+    __tablename__ = "job_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(String(64), unique=True, index=True, nullable=False)
+    document_id = Column(String(255), index=True, nullable=False)
+    filename = Column(String(255), nullable=False)
+    source_path = Column(Text, nullable=False)
+    status = Column(String(50), index=True, nullable=False, default="queued")
+    stage = Column(String(100), nullable=False, default="queued")
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
