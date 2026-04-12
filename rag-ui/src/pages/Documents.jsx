@@ -59,6 +59,22 @@ const Documents = () => {
     return "Contract";
   };
 
+  const formatUploadDate = (rawDate) => {
+    const timestamp = Number(rawDate);
+    if (!Number.isFinite(timestamp) || timestamp <= 0) {
+      return "Pending";
+    }
+
+    return new Date(timestamp * 1000).toLocaleDateString(
+      "en-US",
+      {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      }
+    );
+  };
+
   return (
     <div className="documents-page">
       <div className="card">
@@ -107,7 +123,7 @@ const Documents = () => {
                   .filter((doc) => {
                     if (filter === "recent") {
                       const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-                      return doc.upload_date * 1000 > weekAgo;
+                      return Number(doc.upload_date) * 1000 > weekAgo;
                     }
                     return true;
                   })
@@ -139,17 +155,15 @@ const Documents = () => {
                           fontSize: "13px",
                         }}
                       >
-                        {new Date(doc.upload_date * 1000).toLocaleDateString(
-                          "en-US",
-                          {
-                            month: "short",
-                            day: "numeric",
-                            year: "numeric",
-                          }
-                        )}
+                        {formatUploadDate(doc.upload_date)}
                       </td>
                       <td>
                         <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
+                          {doc.status && doc.status !== "completed" && (
+                            <span className="badge badge-neutral">
+                              {(doc.stage || doc.status).replaceAll("_", " ")}
+                            </span>
+                          )}
                           <span
                             className="table-link"
                             onClick={() =>

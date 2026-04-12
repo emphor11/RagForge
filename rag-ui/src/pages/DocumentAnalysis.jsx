@@ -27,6 +27,8 @@ const DocumentAnalysis = () => {
   const [contractFindings, setContractFindings] = useState([]);
   const [contractReviewAudit, setContractReviewAudit] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [analysisStatus, setAnalysisStatus] = useState("loading");
+  const [analysisStage, setAnalysisStage] = useState(null);
   const [error, setError] = useState(null);
 
   const [query, setQuery] = useState("");
@@ -45,9 +47,41 @@ const DocumentAnalysis = () => {
   const [activeQuote, setActiveQuote] = useState(null);
 
   useEffect(() => {
-    loadDocumentInsights();
+    let pollHandle;
+
+    setResult(null);
+    setContractProfile(null);
+    setContractClauses([]);
+    setContractFindings([]);
+    setContractReviewAudit(null);
+    setReviewerNotes({});
+    setRawText("");
+    setActiveQuote(null);
+    setError(null);
+    setLoading(true);
+    setAnalysisStatus("loading");
+    setAnalysisStage(null);
+
+    const bootstrap = async () => {
+      const shouldPoll = await loadDocumentState();
+      if (shouldPoll) {
+        pollHandle = window.setInterval(async () => {
+          const keepPolling = await loadDocumentState();
+          if (!keepPolling && pollHandle) {
+            window.clearInterval(pollHandle);
+          }
+        }, 3000);
+      }
+    };
+
+    bootstrap();
     setQueryResult(null);
     setQuery("");
+    return () => {
+      if (pollHandle) {
+        window.clearInterval(pollHandle);
+      }
+    };
   }, [id]);
 
   // Close overflow on outside click
@@ -89,6 +123,18 @@ const DocumentAnalysis = () => {
   };
 
   const loadDocumentInsights = async () => {
+    setLoading(true);
+    try {
+      await fetchCompletedDocument();
+      setAnalysisStatus("completed");
+      setAnalysisStage("completed");
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchCompletedDocument = async () => {
     setLoading(true);
     setError(null);
     try {
@@ -146,8 +192,39 @@ const DocumentAnalysis = () => {
       setReviewerNotes({});
       setContractReviewAudit(null);
       setError("Failed to load document insights. Please make sure the file exists.");
-    } finally {
+    }
+  };
+
+  const loadDocumentState = async () => {
+    setError(null);
+    try {
+      const statusRes = await fetch(
+        `${API_BASE_URL}/documents/${encodeURIComponent(document_id)}/status`
+      );
+
+      if (statusRes.ok) {
+        const statusData = await statusRes.json();
+        setAnalysisStatus(statusData.status || "processing");
+        setAnalysisStage(statusData.stage || null);
+
+        if (statusData.status === "queued" || statusData.status === "processing") {
+          setLoading(false);
+          return true;
+        }
+
+        if (statusData.status === "failed") {
+          setLoading(false);
+          setError(statusData.job?.error || "Document analysis failed.");
+          return false;
+        }
+      }
+
+      return await loadDocumentInsights();
+    } catch (err) {
+      console.error("Failed to load document state", err);
+      setError("Failed to load document insights. Please make sure the file exists.");
       setLoading(false);
+      return false;
     }
   };
 
@@ -287,13 +364,27 @@ const DocumentAnalysis = () => {
     );
   }
 
+  if ((analysisStatus === "queued" || analysisStatus === "processing") && !result) {
+    return (
+      <div className="empty-state">
+        <span className="spinner spinner-lg" style={{ marginBottom: "16px" }} />
+        <div className="empty-state-title">Analysis in progress</div>
+        <div className="empty-state-desc">
+          {analysisStage
+            ? `Current stage: ${analysisStage.replaceAll("_", " ")}`
+            : "Your document is queued for deep contract analysis."}
+        </div>
+      </div>
+    );
+  }
+
   if (error && !result) {
     return (
       <div className="empty-state">
         <div className="empty-state-icon"><AlertTriangle /></div>
         <div className="empty-state-title">Something went wrong</div>
         <div className="empty-state-desc">{error}</div>
-        <button className="btn btn-primary" onClick={loadDocumentInsights} style={{ marginTop: "16px" }}>
+        <button className="btn btn-primary" onClick={loadDocumentState} style={{ marginTop: "16px" }}>
           Retry Analysis
         </button>
       </div>

@@ -7,8 +7,11 @@ from typing import Optional
 from functools import lru_cache
 import shutil
 import os
+import time
+from pathlib import Path
 from app.core.vector_runtime import get_vector_store
 from app.services.export_service import ExportService
+from app.services.job_manager import job_manager
 from app.db.database import SessionLocal
 from app.models.audit import AuditLog
 from sqlalchemy.orm import Session
@@ -31,6 +34,75 @@ def get_allowed_origins():
                 origins.add(cleaned)
 
     return sorted(origins)
+
+
+def serialize_job(job: dict):
+    if not job:
+        return None
+
+    return {
+        "job_id": job["job_id"],
+        "document_id": job["document_id"],
+        "filename": job["filename"],
+        "status": job["status"],
+        "stage": job.get("stage"),
+        "error": job.get("error"),
+        "created_at": job["created_at"],
+        "updated_at": job["updated_at"],
+    }
+
+
+def list_documents_with_jobs():
+    from app.db.insight_store import InsightStore
+
+    store = InsightStore()
+    completed_docs = store.list_all()
+    active_jobs = job_manager.list_active_documents()
+
+    seen_ids = {doc["id"] for doc in completed_docs}
+    merged = completed_docs[:]
+    for job_doc in active_jobs:
+        if job_doc["id"] not in seen_ids:
+            merged.append(job_doc)
+
+    return sorted(
+        merged,
+        key=lambda item: float(item.get("upload_date", 0)),
+        reverse=True,
+    )
+
+
+def process_document_job(job_id: str):
+    from app.services.supabase_storage import SupabaseStorage
+
+    job = job_manager.get_job(job_id)
+    if not job:
+        return
+
+    job_manager.mark_processing(job_id, stage="uploading_source")
+    local_path = job["local_path"]
+    document_id = job["document_id"]
+
+    try:
+        pipeline = get_pipeline()
+        ensure_generation_ready(pipeline.generator)
+
+        storage = SupabaseStorage()
+        if storage.is_configured():
+            storage.upload_file(local_path, f"uploads/{document_id}")
+
+        job_manager.update_stage(job_id, "analyzing_document")
+        pipeline.run(local_path, document_id)
+        job_manager.mark_completed(job_id)
+    except ValueError as exc:
+        print(f"❌ Job {job_id} validation error: {exc}")
+        job_manager.mark_failed(job_id, str(exc))
+    except Exception as exc:
+        print(f"❌ Job {job_id} failed: {exc}")
+        job_manager.mark_failed(job_id, "Analysis failed during background processing.")
+    finally:
+        if os.path.exists(local_path):
+            os.remove(local_path)
 
 
 app = FastAPI()
@@ -92,51 +164,78 @@ def get_pipeline():
     )
 
 
-@app.post("/upload")
+@app.post("/upload", status_code=202)
 def upload(file: UploadFile = File(...)):
-    pipeline = get_pipeline()
-    ensure_generation_ready(pipeline.generator)
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Uploaded file must include a filename.")
 
-    # 1. Save temporarily to process
-    temp_path = f"temp_{file.filename}"
+    uploads_dir = Path("uploads")
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    temp_path = uploads_dir / f"{int(time.time())}_{file.filename}"
+
     try:
         with open(temp_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-
         document_id = file.filename
-        
-        # 2. Upload raw file to Supabase for persistence
-        from app.services.supabase_storage import SupabaseStorage
-        storage = SupabaseStorage()
-        storage.upload_file(temp_path, f"uploads/{document_id}")
-
-        # 3. Run analysis pipeline
-        result = pipeline.run(temp_path, document_id)
-        
+        job = job_manager.create_job(
+            document_id=document_id,
+            filename=file.filename,
+            local_path=str(temp_path),
+        )
+        job_manager.submit_job(job["job_id"], process_document_job)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         print(f"❌ Upload Error: {exc}")
         raise HTTPException(
-            status_code=500, detail="Failed to upload and analyze document."
+            status_code=500, detail="Failed to queue document for analysis."
         ) from exc
-    finally:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
 
     return {
         "document_id": document_id,
-        "insights": result.get("insights"),
-        "evaluation": result.get("evaluation"),
+        "job_id": job["job_id"],
+        "status": job["status"],
+        "stage": job["stage"],
     }
 
 
 @app.get("/documents")
 def list_documents():
+    return list_documents_with_jobs()
+
+
+@app.get("/jobs/{job_id}")
+def get_job(job_id: str):
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return serialize_job(job)
+
+
+@app.get("/documents/{document_id}/status")
+def get_document_status(document_id: str):
     from app.db.insight_store import InsightStore
 
+    job = job_manager.get_job_by_document(document_id)
+    if job and job["status"] in {"queued", "processing", "failed"}:
+        return {
+            "document_id": document_id,
+            "status": job["status"],
+            "stage": job.get("stage"),
+            "job": serialize_job(job),
+        }
+
     store = InsightStore()
-    return store.list_all()
+    data = store.load(document_id)
+    if data:
+        return {
+            "document_id": document_id,
+            "status": "completed",
+            "stage": "completed",
+            "job": serialize_job(job) if job else None,
+        }
+
+    raise HTTPException(status_code=404, detail="Document or job not found")
 
 
 @app.delete("/documents/{document_id}")
@@ -164,6 +263,17 @@ def get_insights(document_id: str):
     data = store.load(document_id)
 
     if not data:
+        job = job_manager.get_job_by_document(document_id)
+        if job and job["status"] in {"queued", "processing"}:
+            raise HTTPException(
+                status_code=202,
+                detail="Document analysis is still in progress.",
+            )
+        if job and job["status"] == "failed":
+            raise HTTPException(
+                status_code=500,
+                detail=job.get("error") or "Document analysis failed.",
+            )
         raise HTTPException(status_code=404, detail="Not found")
 
     return data

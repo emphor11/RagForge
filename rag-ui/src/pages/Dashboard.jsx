@@ -74,6 +74,17 @@ const Dashboard = ({ onUploadSuccess }) => {
 
       const data = await res.json();
       onUploadSuccess(data.document_id);
+      setRecentDocs((current) => [
+        {
+          id: data.document_id,
+          filename: file.name,
+          upload_date: Date.now() / 1000,
+          status: data.status,
+          stage: data.stage,
+          job_id: data.job_id,
+        },
+        ...current.filter((doc) => doc.id !== data.document_id),
+      ].slice(0, 10));
       navigate(`/documents/${encodeURIComponent(data.document_id)}`);
     } catch (err) {
       setError("Something went wrong while uploading");
@@ -96,6 +107,22 @@ const Dashboard = ({ onUploadSuccess }) => {
   };
 
   const handleDragLeave = () => setDragging(false);
+
+  const formatUploadDate = (rawDate) => {
+    const timestamp = Number(rawDate);
+    if (!Number.isFinite(timestamp) || timestamp <= 0) {
+      return "Pending";
+    }
+
+    return new Date(timestamp * 1000).toLocaleDateString(
+      "en-US",
+      {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      }
+    );
+  };
 
   return (
     <div className="dashboard-page">
@@ -198,17 +225,15 @@ const Dashboard = ({ onUploadSuccess }) => {
                         </span>
                       </td>
                       <td style={{ color: "var(--text-muted)", fontSize: "13px" }}>
-                        {new Date(doc.upload_date * 1000).toLocaleDateString(
-                          "en-US",
-                          {
-                            month: "short",
-                            day: "numeric",
-                            year: "numeric",
-                          }
-                        )}
+                        {formatUploadDate(doc.upload_date)}
                       </td>
                       <td>
                         <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
+                          {doc.status && doc.status !== "completed" && (
+                            <span className="badge badge-neutral">
+                              {(doc.stage || doc.status).replaceAll("_", " ")}
+                            </span>
+                          )}
                           <span
                             className="table-link"
                             onClick={() =>

@@ -97,6 +97,61 @@ class InsightStore:
             print("⚠️ Skipping audit log (Postgres not configured)")
         return finding
 
+    def update_review_finding_note(self, document_id: str, finding_index: int, reviewer_note: str, user_id: str = "anonymous"):
+        data = self.load(document_id)
+        if not data:
+            return None
+
+        findings = data.get("review_findings", [])
+        if finding_index < 0 or finding_index >= len(findings):
+            return None
+
+        finding = findings[finding_index]
+        finding["reviewer_note"] = reviewer_note
+        self.save(document_id, data)
+
+        if SessionLocal:
+            db = SessionLocal()
+            try:
+                log = AuditLog(
+                    document_id=document_id,
+                    finding_title=finding.get("title", "Untitled"),
+                    finding_type=finding.get("finding_type", "risk"),
+                    status=finding.get("status", "open"),
+                    user_id=user_id,
+                    justification=reviewer_note,
+                    timestamp=datetime.now(timezone.utc),
+                )
+                db.add(log)
+                db.commit()
+            except Exception:
+                db.rollback()
+            finally:
+                db.close()
+
+        return finding
+
+    def delete(self, document_id: str):
+        remote_path = f"{self.folder}/{document_id}.json"
+
+        if self.storage.is_configured():
+            try:
+                self.storage.supabase.storage.from_(self.storage.bucket_name).remove([remote_path])
+            except Exception as e:
+                print(f"❌ Failed to delete {document_id} from storage: {e}")
+
+        if SessionLocal:
+            db = SessionLocal()
+            try:
+                db.query(AuditLog).filter(AuditLog.document_id == document_id).delete()
+                db.query(DocumentMetadata).filter(DocumentMetadata.document_id == document_id).delete()
+                db.commit()
+            except Exception as e:
+                db.rollback()
+                print(f"❌ Failed to delete {document_id} from database: {e}")
+            finally:
+                db.close()
+
     def list_all(self):
         docs = []
         if not self.storage.is_configured():
@@ -108,13 +163,27 @@ class InsightStore:
             for f in files:
                 if f['name'].endswith(".json"):
                     doc_id = f['name'].replace(".json", "")
-                    # We use the 'created_at' from Supabase metadata
-                    upload_date = f.get('created_at', "")
+                    upload_date = self._normalize_upload_date(f.get("created_at"))
                     docs.append({
                         "id": doc_id, 
                         "filename": doc_id, 
-                        "upload_date": upload_date
+                        "upload_date": upload_date,
+                        "status": "completed",
                     })
         except Exception as e:
             print(f"❌ Error listing files: {e}")
         return docs
+
+    def _normalize_upload_date(self, raw_value):
+        if isinstance(raw_value, (int, float)):
+            return float(raw_value)
+
+        if isinstance(raw_value, str) and raw_value:
+            try:
+                return datetime.fromisoformat(
+                    raw_value.replace("Z", "+00:00")
+                ).timestamp()
+            except ValueError:
+                pass
+
+        return datetime.now(timezone.utc).timestamp()
