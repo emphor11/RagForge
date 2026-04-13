@@ -1,20 +1,32 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
-from typing import Optional
-from functools import lru_cache
-import shutil
+import asyncio
+import json
 import os
+import shutil
 import time
 from pathlib import Path
-from app.core.vector_runtime import get_vector_store
-from app.services.export_service import ExportService
-from app.services.job_store import ensure_db_tables, job_store
+from typing import Optional
+
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+from app.db.insight_store import InsightStore
 from app.db.database import SessionLocal
-from app.models.audit import AuditLog
-from sqlalchemy.orm import Session
+from app.services.export_service import ExportService
+from app.services.job_store import ensure_db_tables, job_store, utcnow
+from app.services.live_analysis import run_live_analysis
+from app.services.supabase_storage import SupabaseStorage
+
+
+STREAM_HEADERS = {
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
+
+ACTIVE_JOB_STATUSES = {"queued", "processing", "failed"}
 
 
 def get_allowed_origins():
@@ -36,7 +48,14 @@ def get_allowed_origins():
     return sorted(origins)
 
 
-def serialize_job(job: dict):
+def log_analysis_event(document_id: str, stage: str, detail: Optional[str] = None):
+    message = f"[analysis] document={document_id} stage={stage}"
+    if detail:
+        message += f" detail={detail}"
+    print(message)
+
+
+def serialize_job_payload(job: Optional[dict]):
     if not job:
         return None
 
@@ -49,12 +68,12 @@ def serialize_job(job: dict):
         "error": job.get("error"),
         "created_at": job["created_at"],
         "updated_at": job["updated_at"],
+        "started_at": job.get("started_at"),
+        "completed_at": job.get("completed_at"),
     }
 
 
 def list_documents_with_jobs():
-    from app.db.insight_store import InsightStore
-
     store = InsightStore()
     completed_docs = store.list_all()
     active_jobs = job_store.list_pending_documents()
@@ -72,41 +91,6 @@ def list_documents_with_jobs():
     )
 
 
-app = FastAPI()
-
-
-@app.on_event("startup")
-def startup():
-    ensure_db_tables()
-
-# Add CORS for production (Vercel)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=get_allowed_origins(),
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-@app.get("/health")
-def health_check():
-    from app.services.supabase_storage import SupabaseStorage
-    from app.db.database import SessionLocal
-    
-    storage = SupabaseStorage()
-    config_status = {
-        "supabase_storage": "configured" if storage.is_configured() else "missing",
-        "postgres_db": "configured" if SessionLocal is not None else "missing",
-        "groq_api": "configured" if os.getenv("GROQ_API_KEY") else "missing",
-    }
-    
-    return {
-        "status": "healthy", 
-        "service": "ragforge-api",
-        "config": config_status
-    }
-
-
 def ensure_generation_ready(generator):
     if not getattr(generator, "api_key", None):
         raise HTTPException(
@@ -115,73 +99,323 @@ def ensure_generation_ready(generator):
         )
 
 
+def sse_payload(payload: dict) -> str:
+    return f"data: {json.dumps(payload)}\n\n"
+
+
+def persist_uploaded_source(temp_path: Path, filename: str) -> str:
+    storage = SupabaseStorage()
+    if storage.is_configured():
+        remote_source_path = f"uploads/{int(time.time())}_{filename}"
+        storage.upload_file(str(temp_path), remote_source_path)
+        return f"supabase://{remote_source_path}"
+    return str(temp_path)
+
+
+def update_job_state(
+    job_id: str,
+    *,
+    status: str,
+    stage: str,
+    error: Optional[str] = None,
+    completed: bool = False,
+):
+    changes = {
+        "status": status,
+        "stage": stage,
+        "error": error,
+    }
+    if status == "processing":
+        changes["started_at"] = utcnow()
+    if completed:
+        changes["completed_at"] = utcnow()
+    return job_store.update_job(job_id, **changes)
+
+
+def build_query_docs(query: str, stored_contract: Optional[dict]) -> list[str]:
+    from app.core.review.legal_query import select_contract_query_docs
+    from app.core.retrieval.bm25_retriever import BM25Retriever
+
+    if not stored_contract:
+        return []
+
+    contract_query_docs = []
+    if stored_contract.get("contract_profile"):
+        contract_query_docs = select_contract_query_docs(query, stored_contract)
+
+    if contract_query_docs:
+        return [
+            clause["clause_text"]
+            for clause in contract_query_docs
+            if clause.get("clause_text")
+        ]
+
+    analysis_chunks = stored_contract.get("analysis_chunks") or []
+    if analysis_chunks:
+        ranked_docs = BM25Retriever(analysis_chunks).retrieve(query, k=5)
+        return [doc["content"] for doc in ranked_docs if doc.get("content")]
+
+    raw_text = stored_contract.get("raw_text") or ""
+    if raw_text.strip():
+        return [raw_text[:15000]]
+
+    return []
+
+
+def run_deep_verification(document_id: str):
+    from app.evaluation.evaluator import InsightEvaluator
+
+    store = InsightStore()
+    data = store.load(document_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    insights = data.get("insights") if "insights" in data else data
+    raw_text = data.get("raw_text", "")
+    if not raw_text.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Raw document text is unavailable for deep verification.",
+        )
+
+    evaluator = InsightEvaluator()
+    evaluation = evaluator.run(insights, raw_text)
+    review_audit = evaluator.evaluate_legal_review(
+        data.get("review_findings", []),
+        data.get("clauses", []),
+        data.get("contract_profile", {}),
+    )
+
+    data["evaluation"] = evaluation
+    data["review_audit"] = review_audit
+    data["verification_mode"] = "manual_deep_verify"
+    store.save(document_id, data)
+
+    return {
+        "document_id": document_id,
+        "evaluation": evaluation,
+        "review_audit": review_audit,
+        "mode": "manual_deep_verify",
+    }
+
+
+app = FastAPI()
+
+
+@app.on_event("startup")
+def startup():
+    ensure_db_tables()
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_allowed_origins(),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/health")
+def health_check():
+    storage = SupabaseStorage()
+    config_status = {
+        "supabase_storage": "configured" if storage.is_configured() else "missing",
+        "postgres_db": "configured" if SessionLocal is not None else "missing",
+        "groq_api": "configured" if os.getenv("GROQ_API_KEY") else "missing",
+    }
+
+    return {
+        "status": "healthy",
+        "service": "ragforge-api",
+        "config": config_status,
+    }
+
+
 @app.get("/")
 def root():
     return {"status": "ok", "version": "2.0", "message": "RAGForge v2 Engine"}
 
 
-@lru_cache(maxsize=1)
-def get_pipeline():
-    from app.core.pipelines.auto_insight_pipeline import AutoInsightPipeline
-    from app.core.generation.structured_generator import StructuredGenerator
-    from app.core.ingestion.pipeline import ingest_document
-    from app.db.insight_store import InsightStore
-    from app.evaluation.evaluator import InsightEvaluator
-
-    return AutoInsightPipeline(
-        ingestion_pipeline=ingest_document,
-        generator=StructuredGenerator(),
-        insight_store=InsightStore(),
-        evaluator=InsightEvaluator(),
-    )
-
-
-@app.post("/upload", status_code=202)
-def upload(file: UploadFile = File(...)):
+@app.post("/documents/analyse")
+async def analyse_document(request: Request, file: UploadFile = File(...)):
     if not file.filename:
         raise HTTPException(status_code=400, detail="Uploaded file must include a filename.")
+
+    document_id = file.filename.strip()
+    if not document_id:
+        raise HTTPException(status_code=400, detail="Uploaded file must include a valid filename.")
 
     uploads_dir = Path("uploads")
     uploads_dir.mkdir(parents=True, exist_ok=True)
     temp_path = uploads_dir / f"{int(time.time())}_{file.filename}"
-    source_path = None
 
-    try:
-        with open(temp_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        document_id = file.filename
-        from app.services.supabase_storage import SupabaseStorage
+    async def event_stream():
+        ensure_db_tables()
+        job = None
+        loop = asyncio.get_running_loop()
+        progress_queue: asyncio.Queue[dict] = asyncio.Queue()
 
-        storage = SupabaseStorage()
-        if storage.is_configured():
-            remote_source_path = f"uploads/{int(time.time())}_{file.filename}"
-            storage.upload_file(str(temp_path), remote_source_path)
-            source_path = f"supabase://{remote_source_path}"
-        else:
-            source_path = str(temp_path)
+        def queue_event(payload: dict):
+            loop.call_soon_threadsafe(progress_queue.put_nowait, payload)
 
-        job = job_store.create_job(
-            document_id=document_id,
-            filename=file.filename,
-            source_path=source_path,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        print(f"❌ Upload Error: {exc}")
-        raise HTTPException(
-            status_code=500, detail="Failed to queue document for analysis."
-        ) from exc
-    finally:
-        if source_path and source_path.startswith("supabase://") and os.path.exists(temp_path):
-            os.remove(temp_path)
+        def progress_callback(stage: str, progress: int, detail: Optional[str] = None):
+            log_analysis_event(document_id, stage, detail)
+            if job:
+                update_job_state(
+                    job["job_id"],
+                    status="processing",
+                    stage=stage,
+                    error=None,
+                )
+            queue_event(
+                {
+                    "document_id": document_id,
+                    "job_id": job["job_id"] if job else None,
+                    "status": "processing",
+                    "stage": stage,
+                    "progress": progress,
+                    "detail": detail,
+                }
+            )
 
-    return {
-        "document_id": document_id,
-        "job_id": job["job_id"],
-        "status": job["status"],
-        "stage": job["stage"],
-    }
+        analysis_task = None
+
+        try:
+            initial_payload = {
+                "document_id": document_id,
+                "status": "processing",
+                "stage": "uploading_source",
+                "progress": 5,
+                "detail": "Receiving document upload",
+            }
+            log_analysis_event(document_id, "uploading_source", "Receiving document upload")
+            yield sse_payload(initial_payload)
+
+            with open(temp_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+
+            source_path = persist_uploaded_source(temp_path, file.filename)
+            job = job_store.create_job(
+                document_id=document_id,
+                filename=file.filename,
+                source_path=source_path,
+            )
+            job = update_job_state(
+                job["job_id"],
+                status="processing",
+                stage="uploading_source",
+                error=None,
+            )
+            log_analysis_event(document_id, "uploading_source", "Source saved durably")
+            yield sse_payload(
+                {
+                    "document_id": document_id,
+                    "job_id": job["job_id"],
+                    "status": "processing",
+                    "stage": "uploading_source",
+                    "progress": 10,
+                    "detail": "Source saved to durable storage",
+                }
+            )
+
+            def run_and_persist():
+                try:
+                    run_live_analysis(
+                        document_id=document_id,
+                        file_path=str(temp_path),
+                        progress_callback=progress_callback,
+                    )
+                    update_job_state(
+                        job["job_id"],
+                        status="completed",
+                        stage="completed",
+                        error=None,
+                        completed=True,
+                    )
+                    log_analysis_event(document_id, "completed", "Analysis complete")
+                    queue_event(
+                        {
+                            "document_id": document_id,
+                            "job_id": job["job_id"],
+                            "status": "completed",
+                            "stage": "completed",
+                            "progress": 100,
+                            "detail": "Analysis complete",
+                        }
+                    )
+                except Exception as exc:
+                    message = str(exc) or "Document analysis failed."
+                    update_job_state(
+                        job["job_id"],
+                        status="failed",
+                        stage="failed",
+                        error=message,
+                    )
+                    log_analysis_event(document_id, "failed", message)
+                    queue_event(
+                        {
+                            "document_id": document_id,
+                            "job_id": job["job_id"],
+                            "status": "failed",
+                            "stage": "failed",
+                            "progress": 100,
+                            "detail": message,
+                            "error": message,
+                        }
+                    )
+
+            analysis_task = asyncio.create_task(asyncio.to_thread(run_and_persist))
+
+            while True:
+                event = await progress_queue.get()
+                if await request.is_disconnected():
+                    break
+                yield sse_payload(event)
+                if event["stage"] in {"completed", "failed"}:
+                    break
+
+            if analysis_task:
+                await analysis_task
+        except Exception as exc:
+            message = str(exc) or "Document analysis failed."
+            if job:
+                update_job_state(
+                    job["job_id"],
+                    status="failed",
+                    stage="failed",
+                    error=message,
+                )
+            log_analysis_event(document_id, "failed", message)
+            yield sse_payload(
+                {
+                    "document_id": document_id,
+                    "job_id": job["job_id"] if job else None,
+                    "status": "failed",
+                    "stage": "failed",
+                    "progress": 100,
+                    "detail": message,
+                    "error": message,
+                }
+            )
+        finally:
+            await file.close()
+            if temp_path.exists():
+                temp_path.unlink()
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers=STREAM_HEADERS,
+    )
+
+
+@app.post("/upload", status_code=410)
+def upload_route_retired():
+    raise HTTPException(
+        status_code=410,
+        detail="Use POST /documents/analyse for streaming document analysis.",
+    )
 
 
 @app.get("/documents")
@@ -194,20 +428,19 @@ def get_job(job_id: str):
     job = job_store.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    return serialize_job(job)
+    return serialize_job_payload(job)
 
 
 @app.get("/documents/{document_id}/status")
 def get_document_status(document_id: str):
-    from app.db.insight_store import InsightStore
-
     job = job_store.get_job_by_document(document_id)
-    if job and job["status"] in {"queued", "processing", "failed"}:
+    if job and job["status"] in ACTIVE_JOB_STATUSES:
         return {
             "document_id": document_id,
             "status": job["status"],
             "stage": job.get("stage"),
-            "job": serialize_job(job),
+            "error": job.get("error"),
+            "job": serialize_job_payload(job),
         }
 
     store = InsightStore()
@@ -217,7 +450,10 @@ def get_document_status(document_id: str):
             "document_id": document_id,
             "status": "completed",
             "stage": "completed",
-            "job": serialize_job(job) if job else None,
+            "error": None,
+            "job": serialize_job_payload(job) if job else None,
+            "analysis_mode": data.get("analysis_mode", "groq_live"),
+            "verification_mode": data.get("verification_mode"),
         }
 
     raise HTTPException(status_code=404, detail="Document or job not found")
@@ -225,9 +461,6 @@ def get_document_status(document_id: str):
 
 @app.delete("/documents/{document_id}")
 def delete_document(document_id: str):
-    from app.db.insight_store import InsightStore
-    from app.services.supabase_storage import SupabaseStorage
-
     store = InsightStore()
     data = store.load(document_id)
     job = job_store.get_job_by_document(document_id)
@@ -248,15 +481,11 @@ def delete_document(document_id: str):
 
     store.delete(document_id)
     job_store.delete_document_jobs(document_id)
-
-    get_vector_store().delete_documents(source=document_id)
     return {"message": "Document deleted successfully"}
 
 
 @app.get("/insights/{document_id}")
 def get_insights(document_id: str):
-    from app.db.insight_store import InsightStore
-
     store = InsightStore()
     data = store.load(document_id)
 
@@ -277,10 +506,13 @@ def get_insights(document_id: str):
     return data
 
 
+@app.post("/documents/{document_id}/verify")
+def verify_document(document_id: str):
+    return run_deep_verification(document_id)
+
+
 @app.get("/export/{document_id}")
 def export_docx(document_id: str):
-    from app.db.insight_store import InsightStore
-
     store = InsightStore()
     data = store.load(document_id)
     if not data:
@@ -288,29 +520,21 @@ def export_docx(document_id: str):
 
     export_service = ExportService()
     try:
-        file_path = export_service.generate_report(document_id, data)
-        if not os.path.exists(file_path):
-            raise HTTPException(status_code=500, detail="Failed to generate file")
-        return FileResponse(
-            path=file_path,
-            filename=f"RAG_Report_{document_id}.docx",
-            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        export_url = export_service.generate_report(document_id, data)
+        if not export_url:
+            raise HTTPException(status_code=500, detail="Failed to generate export URL")
+        return RedirectResponse(export_url)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.post("/contracts/{document_id}/findings/{idx}/audit")
 def update_finding_audit(document_id: str, idx: int, payload: dict):
-    # E.g. {"status": "accepted", "user_id": "test_user"}
-
-    from app.db.insight_store import InsightStore
-
-    store = InsightStore()
     new_status = payload.get("status")
     reviewer_note = payload.get("reviewer_note")
     user_id = payload.get("user_id", "anonymous")
 
+    store = InsightStore()
     if new_status:
         updated_finding = store.update_review_finding_status(
             document_id, idx, new_status, user_id
@@ -330,10 +554,7 @@ def update_finding_audit(document_id: str, idx: int, payload: dict):
 
 @app.get("/contracts/{document_id}/overview")
 def get_contract_overview(document_id: str):
-    from app.db.insight_store import InsightStore
-
-    store = InsightStore()
-    data = store.load(document_id)
+    data = InsightStore().load(document_id)
 
     if not data:
         raise HTTPException(status_code=404, detail="Contract not found")
@@ -350,10 +571,7 @@ def get_contract_overview(document_id: str):
 
 @app.get("/contracts/{document_id}/clauses")
 def get_contract_clauses(document_id: str):
-    from app.db.insight_store import InsightStore
-
-    store = InsightStore()
-    data = store.load(document_id)
+    data = InsightStore().load(document_id)
 
     if not data:
         raise HTTPException(status_code=404, detail="Contract not found")
@@ -378,10 +596,7 @@ def get_contract_clauses(document_id: str):
 
 @app.get("/contracts/{document_id}/risks")
 def get_contract_risks(document_id: str):
-    from app.db.insight_store import InsightStore
-
-    store = InsightStore()
-    data = store.load(document_id)
+    data = InsightStore().load(document_id)
 
     if not data:
         raise HTTPException(status_code=404, detail="Contract not found")
@@ -397,10 +612,7 @@ def get_contract_risks(document_id: str):
 
 @app.get("/contracts/{document_id}/review-audit")
 def get_contract_review_audit(document_id: str):
-    from app.db.insight_store import InsightStore
-
-    store = InsightStore()
-    data = store.load(document_id)
+    data = InsightStore().load(document_id)
 
     if not data:
         raise HTTPException(status_code=404, detail="Contract not found")
@@ -417,8 +629,6 @@ def get_contract_review_audit(document_id: str):
 
 @app.get("/reports")
 def get_reports():
-    from app.db.insight_store import InsightStore
-
     store = InsightStore()
     docs = store.list_all()
 
@@ -438,10 +648,8 @@ def get_reports():
         if not full_data:
             continue
 
-        # Support both new nested format and legacy top-level format
         details = full_data.get("insights") if "insights" in full_data else full_data
 
-        # Aggregate risks
         risks = details.get("risks", [])
         report_data["total_risks"] += len(risks)
         for risk in risks:
@@ -449,11 +657,9 @@ def get_reports():
             if severity in report_data["risk_summary"]:
                 report_data["risk_summary"][severity] += 1
 
-        # Aggregate actions
         actions = details.get("recommended_actions", [])
         report_data["total_actions"] += len(actions)
 
-        # Collect insights
         insights = details.get("key_insights", [])
         for insight in insights:
             insight_text = (
@@ -464,7 +670,6 @@ def get_reports():
                 if len(report_data["top_insights"]) < 10:
                     report_data["top_insights"].append(insight_text)
 
-        # Document brief for list
         report_data["doc_list"].append(
             {
                 "name": doc["id"],
@@ -478,7 +683,6 @@ def get_reports():
 @app.get("/analytics")
 def get_analytics():
     from datetime import datetime, timedelta
-    from app.db.insight_store import InsightStore
 
     store = InsightStore()
     docs = store.list_all()
@@ -499,42 +703,33 @@ def get_analytics():
         if not full_data:
             continue
 
-        # Date aggregation
         dt = datetime.fromtimestamp(doc["upload_date"])
         date_str = dt.strftime("%Y-%m-%d")
         analytics["docs_over_time"][date_str] = (
             analytics["docs_over_time"].get(date_str, 0) + 1
         )
 
-        # Support both new nested format and legacy top-level format
         details = full_data.get("insights") if "insights" in full_data else full_data
-
-        # Confidence
         conf = (
             details.get("overall_confidence") or details.get("confidence_score") or 0.0
         )
         total_conf += conf
 
-        # Risk trend calculation
         risks_count = len(details.get("risks", []))
         if dt > one_week_ago:
             analytics["risk_trend"]["this_week"] += risks_count
         else:
             analytics["risk_trend"]["last_week"] += risks_count
 
-    # Final calculations
     if len(docs) > 0:
         analytics["performance"]["avg_confidence"] = round(total_conf / len(docs), 2)
 
-    # Trend direction
     if analytics["risk_trend"]["this_week"] < analytics["risk_trend"]["last_week"]:
         analytics["risk_trend"]["direction"] = "down"
     elif analytics["risk_trend"]["this_week"] > analytics["risk_trend"]["last_week"]:
         analytics["risk_trend"]["direction"] = "up"
 
-    # Mocking untracked query counts for the UI demo/simple version
     analytics["usage"]["total_queries"] = len(docs) * 4
-
     return analytics
 
 
@@ -553,95 +748,40 @@ class FindingNoteUpdate(BaseModel):
 
 @app.post("/query")
 def query_api(request: QueryRequest):
-    from app.db.insight_store import InsightStore
-    from app.core.review.legal_query import select_contract_query_docs
-    from app.core.retrieval.vector_retriever import VectorRetriever
-    from app.core.retrieval.bm25_retriever import BM25Retriever
-    from app.core.retrieval.hybrid_retriever import HybridRetriever
-    from app.core.reranking.reranker import Reranker
     from app.core.generation.structured_generator import StructuredGenerator
 
     query = request.query
     document_id = request.document_id
-    insight_store = InsightStore()
-    stored_contract = insight_store.load(document_id) if document_id else None
+    stored_contract = InsightStore().load(document_id) if document_id else None
 
-    contract_query_docs = []
-    if stored_contract and stored_contract.get("contract_profile"):
-        contract_query_docs = select_contract_query_docs(query, stored_contract)
+    if document_id and not stored_contract:
+        raise HTTPException(status_code=404, detail="Document analysis not found.")
 
-    # Fetch docs from store for BM25 (filtered by document_id)
-    all_docs = get_vector_store().get_all_documents(source=document_id)
-
-    if document_id and not all_docs:
+    docs = build_query_docs(query, stored_contract)
+    if not docs:
         raise HTTPException(
             status_code=404,
-            detail=f"No indexed content found for document_id '{document_id}'.",
+            detail="No relevant context found for the query.",
         )
-
-    docs = []
-
-    if contract_query_docs:
-        docs = [
-            clause["clause_text"]
-            for clause in contract_query_docs
-            if clause.get("clause_text")
-        ]
-
-    if not docs:
-        vector = VectorRetriever()
-        bm25 = BM25Retriever(all_docs)
-        hybrid = HybridRetriever(vector, bm25)
-
-        try:
-            results = hybrid.retrieve(query, k=10, document_id=document_id)
-        except Exception as exc:
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to retrieve supporting context for the query.",
-            ) from exc
-
-        if not results:
-            raise HTTPException(
-                status_code=404, detail="No relevant context found for the query."
-            )
-
-        reranker = Reranker()
-        try:
-            final_docs = reranker.rerank(query, results, top_k=5)
-        except Exception as exc:
-            raise HTTPException(
-                status_code=500, detail="Failed to rerank retrieved context."
-            ) from exc
-
-        print(f"\n--- RETRIEVED CHUNKS FOR QUERY ---")
-        for i, chunk in enumerate(final_docs):
-            print(f"Chunk {i+1}: {chunk['content'][:200]}...\n")
-        print(f"--- END CHUNKS ---\n")
-
-        docs = [doc["content"] for doc in final_docs]
 
     generator = StructuredGenerator()
     ensure_generation_ready(generator)
 
     try:
-        output = generator.generate(query=query, docs=docs)
+        return generator.generate(query=query, docs=docs)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(
-            status_code=500, detail="Failed to generate a response for the query."
+            status_code=500,
+            detail="Failed to generate a response for the query.",
         ) from exc
-
-    return output
 
 
 @app.patch("/contracts/{document_id}/findings/{finding_index}/status")
 def update_contract_finding_status(
     document_id: str, finding_index: int, payload: FindingStatusUpdate
 ):
-    from app.db.insight_store import InsightStore
-
     allowed_statuses = {
         "open",
         "reviewed",
@@ -672,8 +812,6 @@ def update_contract_finding_status(
 def update_contract_finding_note(
     document_id: str, finding_index: int, payload: FindingNoteUpdate
 ):
-    from app.db.insight_store import InsightStore
-
     store = InsightStore()
     updated_finding = store.update_review_finding_note(
         document_id,
@@ -693,23 +831,20 @@ def update_contract_finding_note(
 
 @app.get("/contracts/{document_id}/export")
 def export_contract_report(document_id: str):
-    store = InsightStore()
-    data = store.load(document_id)
+    data = InsightStore().load(document_id)
     if not data:
         raise HTTPException(status_code=404, detail="Contract not found")
 
     from docx import Document
-    from docx.shared import Pt, RGBColor
     from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.shared import Pt, RGBColor
     import io
 
     doc = Document()
 
-    # Title
     title = doc.add_heading(f"Contract Review Report: {document_id}", 0)
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-    # Overview
     profile = data.get("contract_profile", {})
     doc.add_heading("Contract Overview", level=1)
     table = doc.add_table(rows=0, cols=2)
@@ -727,7 +862,6 @@ def export_contract_report(document_id: str):
     add_row("Term Length", profile.get("term_length"))
     add_row("Parties", ", ".join(profile.get("parties", [])))
 
-    # Findings
     findings = data.get("review_findings", [])
     if findings:
         doc.add_heading("Review Findings", level=1)
@@ -755,7 +889,6 @@ def export_contract_report(document_id: str):
 
             doc.add_paragraph("-" * 30)
 
-    # Clause Inventory
     clauses = data.get("clauses", [])
     if clauses:
         doc.add_heading("Clause Inventory", level=1)
@@ -766,7 +899,6 @@ def export_contract_report(document_id: str):
             )
             doc.add_paragraph(clause.get("clause_text", ""))
 
-    # Save to buffer
     target = io.BytesIO()
     doc.save(target)
     target.seek(0)
@@ -780,14 +912,9 @@ def export_contract_report(document_id: str):
     )
 
 
-# -----------------------------------------------------------------------------
-# UNIFIED HOSTING: Serve React Frontend
-# -----------------------------------------------------------------------------
-# We assume the user has run 'npm run build' which creates the 'dist' folder
 frontend_path = os.path.join(os.getcwd(), "rag-ui", "dist")
 
 if os.path.exists(frontend_path):
-    # Mount assets folder for static files (JS, CSS, Images)
     app.mount(
         "/assets",
         StaticFiles(directory=os.path.join(frontend_path, "assets")),
@@ -796,11 +923,6 @@ if os.path.exists(frontend_path):
 
     @app.get("/{rest_of_path:path}")
     async def react_app(rest_of_path: str):
-        """
-        Catch-all route to serve the React SPA.
-        Ensures React Router works on page refresh.
-        """
-        # Exclude common backend paths to avoid confusion
         if rest_of_path.startswith(("api/", "docs", "openapi.json", "redoc")):
             raise HTTPException(status_code=404, detail="API route not found")
 

@@ -17,6 +17,17 @@ import {
   ChevronRight,
 } from "lucide-react";
 
+const STAGE_LABELS = {
+  uploading_source: "Saving document…",
+  parsing_document: "Reading contract…",
+  building_context: "Building contract context…",
+  analysing_contract: "Extracting clauses and risks…",
+  saving_results: "Saving results…",
+  completed: "Analysis complete",
+  failed: "Analysis failed",
+  reconnecting: "Reconnecting to saved analysis state…",
+};
+
 const DocumentAnalysis = () => {
   const { id } = useParams();
   const document_id = decodeURIComponent(id);
@@ -36,6 +47,7 @@ const DocumentAnalysis = () => {
   const [queryLoading, setQueryLoading] = useState(false);
   const [showSupplementalAnalysis, setShowSupplementalAnalysis] = useState(false);
   const [updatingFindingIndex, setUpdatingFindingIndex] = useState(null);
+  const [verifyLoading, setVerifyLoading] = useState(false);
   const [findingFilter, setFindingFilter] = useState("all");
   const [reviewerNotes, setReviewerNotes] = useState({});
   const [savingNoteIndex, setSavingNoteIndex] = useState(null);
@@ -230,7 +242,7 @@ const DocumentAnalysis = () => {
         setAnalysisStatus((current) =>
           current === "completed" ? current : "processing"
         );
-        setAnalysisStage("waiting_for_worker");
+        setAnalysisStage("reconnecting");
         setLoading(false);
         return true;
       }
@@ -314,6 +326,29 @@ const DocumentAnalysis = () => {
     window.open(`${API_BASE_URL}/export/${encodeURIComponent(document_id)}`, "_blank");
   };
 
+  const handleRunVerify = async () => {
+    if (verifyLoading) return;
+    setVerifyLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/documents/${encodeURIComponent(document_id)}/verify`,
+        {
+          method: "POST",
+        }
+      );
+      if (!res.ok) {
+        throw new Error("Verify request failed");
+      }
+      await fetchCompletedDocument();
+    } catch (err) {
+      console.error(err);
+      setError("Failed to run deep verification.");
+    } finally {
+      setVerifyLoading(false);
+    }
+  };
+
   const getSeverityLabel = (severity) => {
     const s = severity?.toLowerCase();
     if (s === "high") return "Critical Risk";
@@ -384,8 +419,8 @@ const DocumentAnalysis = () => {
         <div className="empty-state-title">Analysis in progress</div>
         <div className="empty-state-desc">
           {analysisStage
-            ? `Current stage: ${analysisStage.replaceAll("_", " ")}`
-            : "Your document is queued for deep contract analysis."}
+            ? `Current stage: ${STAGE_LABELS[analysisStage] || analysisStage.replaceAll("_", " ")}`
+            : "Your document is being processed and saved."}
         </div>
       </div>
     );
@@ -676,6 +711,9 @@ const DocumentAnalysis = () => {
               {showSupplementalAnalysis ? "Hide" : "Show"} AI Research Notes
             </button>
           )}
+          <button className="btn btn-secondary btn-sm" onClick={handleRunVerify} disabled={verifyLoading}>
+            <Shield /> {verifyLoading ? "Verifying…" : "Run Verify"}
+          </button>
           <button className="btn btn-primary" onClick={handleExportReport}>
             <Download /> Export Report
           </button>

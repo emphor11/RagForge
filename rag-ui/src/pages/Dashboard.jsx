@@ -3,6 +3,16 @@ import { useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../config";
 import { FileText, Upload, AlertTriangle, FolderOpen, Trash2 } from "lucide-react";
 
+const STAGE_LABELS = {
+  uploading_source: "Saving document…",
+  parsing_document: "Reading contract…",
+  building_context: "Building contract context…",
+  analysing_contract: "Extracting clauses and risks…",
+  saving_results: "Saving results…",
+  completed: "Analysis complete",
+  failed: "Analysis failed",
+};
+
 const Dashboard = ({ onUploadSuccess }) => {
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -10,6 +20,7 @@ const Dashboard = ({ onUploadSuccess }) => {
   const [dragging, setDragging] = useState(false);
   const [recentDocs, setRecentDocs] = useState([]);
   const [docsLoading, setDocsLoading] = useState(true);
+  const [streamState, setStreamState] = useState(null);
   const fileInputRef = useRef(null);
   const navigate = useNavigate();
 
@@ -60,35 +71,102 @@ const Dashboard = ({ onUploadSuccess }) => {
 
     setLoading(true);
     setError(null);
+    setStreamState({
+      stage: "uploading_source",
+      progress: 0,
+      detail: "Preparing document upload",
+    });
 
     const formData = new FormData();
     formData.append("file", file);
 
     try {
-      const res = await fetch(`${API_BASE_URL}/upload`, {
+      const res = await fetch(`${API_BASE_URL}/documents/analyse`, {
         method: "POST",
         body: formData,
       });
 
-      if (!res.ok) throw new Error("Upload failed");
+      if (!res.ok) {
+        throw new Error("Upload failed");
+      }
+      if (!res.body) {
+        throw new Error("Streaming analysis is not available.");
+      }
 
-      const data = await res.json();
-      onUploadSuccess(data.document_id);
-      setRecentDocs((current) => [
-        {
-          id: data.document_id,
-          filename: file.name,
-          upload_date: Date.now() / 1000,
-          status: data.status,
-          stage: data.stage,
-          job_id: data.job_id,
-        },
-        ...current.filter((doc) => doc.id !== data.document_id),
-      ].slice(0, 10));
-      navigate(`/documents/${encodeURIComponent(data.document_id)}`);
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let completedDocumentId = null;
+
+      const applyEvent = (event) => {
+        const documentId = event.document_id || file.name;
+        setStreamState({
+          stage: event.stage || "uploading_source",
+          progress: event.progress ?? 0,
+          detail: event.detail || "",
+        });
+
+        setRecentDocs((current) => [
+          {
+            id: documentId,
+            filename: file.name,
+            upload_date: Date.now() / 1000,
+            status: event.status || "processing",
+            stage: event.stage || "uploading_source",
+            job_id: event.job_id || null,
+            error: event.error || null,
+          },
+          ...current.filter((doc) => doc.id !== documentId),
+        ].slice(0, 10));
+
+        if (event.stage === "failed") {
+          throw new Error(event.error || event.detail || "Document analysis failed.");
+        }
+
+        if (event.stage === "completed") {
+          completedDocumentId = documentId;
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+
+        const blocks = buffer.split("\n\n");
+        buffer = blocks.pop() || "";
+
+        for (const block of blocks) {
+          const payload = block
+            .split("\n")
+            .filter((line) => line.startsWith("data: "))
+            .map((line) => line.slice(6))
+            .join("\n");
+
+          if (!payload) {
+            continue;
+          }
+
+          applyEvent(JSON.parse(payload));
+        }
+
+        if (done) {
+          break;
+        }
+      }
+
+      if (!completedDocumentId) {
+        throw new Error("Analysis stream ended before the document completed.");
+      }
+
+      onUploadSuccess(completedDocumentId);
+      setFile(null);
+      setStreamState(null);
+      fetchDocuments();
+      navigate(`/documents/${encodeURIComponent(completedDocumentId)}`);
     } catch (err) {
       setError("Something went wrong while uploading");
       console.error(err);
+      setStreamState(null);
     } finally {
       setLoading(false);
     }
@@ -192,6 +270,18 @@ const Dashboard = ({ onUploadSuccess }) => {
             >
               Clear
             </button>
+          </div>
+        )}
+
+        {streamState && (
+          <div style={{ marginTop: "14px", textAlign: "center", color: "var(--text-muted)" }}>
+            <div style={{ fontSize: "13px", marginBottom: "4px" }}>
+              {STAGE_LABELS[streamState.stage] || streamState.stage?.replaceAll("_", " ")}
+              {typeof streamState.progress === "number" ? ` · ${streamState.progress}%` : ""}
+            </div>
+            {streamState.detail && (
+              <div style={{ fontSize: "12px" }}>{streamState.detail}</div>
+            )}
           </div>
         )}
       </div>

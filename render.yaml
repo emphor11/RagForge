@@ -5,16 +5,3 @@ services:
     plan: free
     branch: main
     autoDeploy: true
-    envVars:
-      - key: SERVICE_MODE
-        value: web
-
-  - type: worker
-    name: ragforge-worker
-    env: docker
-    plan: free
-    branch: main
-    autoDeploy: true
-    envVars:
-      - key: SERVICE_MODE
-        value: worker

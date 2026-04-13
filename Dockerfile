@@ -20,10 +20,6 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# --- CRITICAL: PRE-LOAD AI MODELS ---
-# This bakes the models into the image so they start instantly
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
-
 # Copy application code
 COPY app/ ./app/
 COPY config/ ./config/
@@ -36,8 +32,6 @@ RUN mkdir -p chroma_db insights exports uploads
 
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8000
-ENV SERVICE_MODE=web
 EXPOSE 8000
 
-# Run either the web API or the background worker.
-CMD ["sh", "-c", "if [ \"$SERVICE_MODE\" = \"worker\" ]; then python -m app.worker; else uvicorn app.api.main:app --host 0.0.0.0 --port ${PORT:-8000}; fi"]
+CMD ["sh", "-c", "uvicorn app.api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
