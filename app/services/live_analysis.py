@@ -5,6 +5,8 @@ from app.core.generation.structured_generator import StructuredGenerator
 from app.core.ingestion.pipeline import ingest_document
 from app.core.retrieval.bm25_retriever import BM25Retriever
 from app.db.insight_store import InsightStore
+from app.services.groq_evaluator import GroqReviewEvaluator
+from app.services.retrieval import get_hosted_retrieval_service
 
 
 LIVE_MAX_CHUNKS = 40
@@ -43,21 +45,49 @@ def _select_live_chunks(chunks: list[dict], max_chunks: int = LIVE_MAX_CHUNKS):
     return ordered
 
 
+def _select_context_docs(retrieved_docs: list[dict], fallback_chunks: list[dict]) -> tuple[list[str], list[int], str]:
+    if retrieved_docs:
+        docs = [doc.get("content", "") for doc in retrieved_docs if doc.get("content")]
+        chunk_ids = [
+            doc.get("metadata", {}).get("chunk_id")
+            for doc in retrieved_docs
+            if doc.get("metadata", {}).get("chunk_id") is not None
+        ]
+        return docs[:LIVE_CONTEXT_DOCS], chunk_ids, "hybrid_reranked"
+
+    selected_chunks = _select_live_chunks(fallback_chunks, max_chunks=LIVE_MAX_CHUNKS)
+    docs = [
+        chunk.get("content", "")
+        for chunk in selected_chunks[:LIVE_CONTEXT_DOCS]
+        if chunk.get("content")
+    ]
+    chunk_ids = [
+        chunk.get("metadata", {}).get("chunk_id")
+        for chunk in selected_chunks
+        if chunk.get("metadata", {}).get("chunk_id") is not None
+    ]
+    return docs, chunk_ids, "bm25_fallback"
+
+
 def run_live_analysis(document_id: str, file_path: str, progress_callback: Optional[Callable[[str, int, Optional[str]], None]] = None):
     analyzer = LLMContractAnalyzer()
     generator = StructuredGenerator()
+    evaluator = GroqReviewEvaluator()
+    retrieval = get_hosted_retrieval_service()
     store = InsightStore()
 
     _emit(progress_callback, "parsing_document", 15, "Reading and chunking the contract")
     chunks, raw_text = ingest_document(file_path, document_id)
 
     _emit(progress_callback, "building_context", 35, "Selecting the most relevant clauses")
-    selected_chunks = _select_live_chunks(chunks, max_chunks=LIVE_MAX_CHUNKS)
-    selected_docs = [
-        chunk["content"]
-        for chunk in selected_chunks[:LIVE_CONTEXT_DOCS]
-        if chunk.get("content")
-    ]
+    vector_store_stats = retrieval.store_document_chunks(document_id, chunks[:LIVE_MAX_CHUNKS])
+    retrieved_docs = retrieval.hybrid_retrieve(
+        document_id=document_id,
+        query=LIVE_QUERY,
+        chunks=chunks[:LIVE_MAX_CHUNKS],
+        top_k=LIVE_CONTEXT_DOCS,
+    )
+    selected_docs, selected_chunk_ids, retrieval_mode = _select_context_docs(retrieved_docs, chunks)
 
     if not selected_docs and raw_text:
         selected_docs = [raw_text[:15000]]
@@ -85,15 +115,15 @@ def run_live_analysis(document_id: str, file_path: str, progress_callback: Optio
             "evaluation": {
                 "score": 0,
                 "status": "deferred",
-                "mode": "manual_verify_required",
-                "recommendation": "Run Verify only if this file should be treated as a contract.",
+                "mode": "non_legal_document",
+                "recommendation": "Analysis stopped because the uploaded file does not appear to be a legal agreement.",
             },
             "review_audit": {
                 "score": 0,
                 "status": "deferred",
-                "mode": "manual_verify_required",
+                "mode": "non_legal_document",
             },
-            "analysis_chunks": selected_chunks,
+            "analysis_chunks": chunks[:LIVE_MAX_CHUNKS],
             "raw_text": raw_text,
             "analysis_mode": "groq_live",
         }
@@ -101,7 +131,8 @@ def run_live_analysis(document_id: str, file_path: str, progress_callback: Optio
         store.save(document_id, result)
         return result
 
-    clause_records = analyzer.extract_clauses(selected_chunks)
+    clause_input_chunks = retrieved_docs if retrieved_docs else _select_live_chunks(chunks, max_chunks=LIVE_MAX_CHUNKS)
+    clause_records = analyzer.extract_clauses(clause_input_chunks)
     contract_profile["clause_index"] = [
         {
             "title": clause["title"],
@@ -118,33 +149,30 @@ def run_live_analysis(document_id: str, file_path: str, progress_callback: Optio
         mode="document",
         document_type=contract_profile.get("document_type"),
     )
+    evaluation, review_audit = evaluator.evaluate(
+        findings=review_findings,
+        context_docs=selected_docs,
+        clauses=clause_records,
+    )
 
     result = {
         "contract_profile": contract_profile,
         "clauses": clause_records,
         "review_findings": review_findings,
         "insights": insights,
-        "evaluation": {
-            "score": 0,
-            "status": "deferred",
-            "mode": "manual_verify_required",
-            "recommendation": "Run Verify for deep semantic evaluation and heavier reranking.",
-        },
-        "review_audit": {
-            "score": 0,
-            "status": "deferred",
-            "mode": "manual_verify_required",
-        },
-        "analysis_chunks": selected_chunks,
+        "evaluation": evaluation,
+        "review_audit": review_audit,
+        "analysis_chunks": chunks[:LIVE_MAX_CHUNKS],
         "raw_text": raw_text,
         "analysis_mode": "groq_live",
+        "verification_summary": "Hosted Fast Review completed with hybrid retrieval, reranked context, and Groq grounding checks.",
         "retrieval_debug": {
-            "selected_chunk_ids": [
-                chunk.get("metadata", {}).get("chunk_id")
-                for chunk in selected_chunks
-                if chunk.get("metadata", {}).get("chunk_id") is not None
-            ],
-            "selected_count": len(selected_chunks),
+            "mode": retrieval_mode,
+            "selected_chunk_ids": selected_chunk_ids,
+            "selected_count": len(selected_docs),
+            "stored_vectors": vector_store_stats.get("stored_vectors", 0),
+            "vector_mode": vector_store_stats.get("mode", "bm25_only"),
+            "rerank_enabled": retrieval.has_reranker(),
         },
     }
 

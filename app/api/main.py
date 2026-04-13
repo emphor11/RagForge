@@ -17,6 +17,7 @@ from app.db.database import SessionLocal
 from app.services.export_service import ExportService
 from app.services.job_store import ensure_db_tables, job_store, utcnow
 from app.services.live_analysis import run_live_analysis
+from app.services.retrieval import get_hosted_retrieval_service
 from app.services.supabase_storage import SupabaseStorage
 
 
@@ -156,6 +157,22 @@ def build_query_docs(query: str, stored_contract: Optional[dict]) -> list[str]:
 
     analysis_chunks = stored_contract.get("analysis_chunks") or []
     if analysis_chunks:
+        retrieval = get_hosted_retrieval_service()
+        document_id = (
+            stored_contract.get("contract_profile", {}).get("document_id")
+            or stored_contract.get("document_id")
+            or stored_contract.get("filename")
+            or ""
+        )
+        if document_id:
+            hybrid_docs = retrieval.hybrid_retrieve(
+                document_id=document_id,
+                query=query,
+                chunks=analysis_chunks,
+                top_k=8,
+            )
+            if hybrid_docs:
+                return [doc["content"] for doc in hybrid_docs if doc.get("content")]
         ranked_docs = BM25Retriever(analysis_chunks).retrieve(query, k=5)
         return [doc["content"] for doc in ranked_docs if doc.get("content")]
 
@@ -235,10 +252,14 @@ app.add_middleware(
 @app.get("/health")
 def health_check():
     storage = SupabaseStorage()
+    retrieval = get_hosted_retrieval_service()
     config_status = {
         "supabase_storage": "configured" if storage.is_configured() else "missing",
         "postgres_db": "configured" if SessionLocal is not None else "missing",
         "groq_api": "configured" if os.getenv("GROQ_API_KEY") else "missing",
+        "openai_embeddings": "configured" if retrieval.has_embedding_stack() else "missing",
+        "cohere_rerank": "configured" if retrieval.has_reranker() else "missing",
+        "qdrant_vector_store": "configured" if os.getenv("QDRANT_URL") else "missing",
         "deep_verify": "enabled" if is_deep_verify_enabled() else "disabled",
     }
 

@@ -2,6 +2,9 @@ fastapi
 uvicorn
 certifi
 rank-bm25
+openai
+cohere
+qdrant-client
 pydantic
 python-dotenv
 loguru
