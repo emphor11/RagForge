@@ -99,6 +99,10 @@ def ensure_generation_ready(generator):
         )
 
 
+def is_deep_verify_enabled():
+    return os.getenv("ENABLE_DEEP_VERIFY", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def sse_payload(payload: dict) -> str:
     return f"data: {json.dumps(payload)}\n\n"
 
@@ -163,6 +167,12 @@ def build_query_docs(query: str, stored_contract: Optional[dict]) -> list[str]:
 
 
 def run_deep_verification(document_id: str):
+    if not is_deep_verify_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="Deep verification is disabled in the free-hosted deployment.",
+        )
+
     from app.evaluation.evaluator import InsightEvaluator
 
     store = InsightStore()
@@ -178,13 +188,19 @@ def run_deep_verification(document_id: str):
             detail="Raw document text is unavailable for deep verification.",
         )
 
-    evaluator = InsightEvaluator()
-    evaluation = evaluator.run(insights, raw_text)
-    review_audit = evaluator.evaluate_legal_review(
-        data.get("review_findings", []),
-        data.get("clauses", []),
-        data.get("contract_profile", {}),
-    )
+    try:
+        evaluator = InsightEvaluator()
+        evaluation = evaluator.run(insights, raw_text)
+        review_audit = evaluator.evaluate_legal_review(
+            data.get("review_findings", []),
+            data.get("clauses", []),
+            data.get("contract_profile", {}),
+        )
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Deep verification dependencies are not installed in the hosted runtime.",
+        ) from exc
 
     data["evaluation"] = evaluation
     data["review_audit"] = review_audit
@@ -223,6 +239,7 @@ def health_check():
         "supabase_storage": "configured" if storage.is_configured() else "missing",
         "postgres_db": "configured" if SessionLocal is not None else "missing",
         "groq_api": "configured" if os.getenv("GROQ_API_KEY") else "missing",
+        "deep_verify": "enabled" if is_deep_verify_enabled() else "disabled",
     }
 
     return {
