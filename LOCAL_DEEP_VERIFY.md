@@ -33,6 +33,27 @@ export OLLAMA_URL=http://127.0.0.1:11434
 export OLLAMA_MODEL=llama3.1:8b
 ```
 
+For slower local machines, you can allow longer verification runs or send less raw text to Ollama:
+
+```bash
+export OLLAMA_TIMEOUT_SECONDS=420
+export OLLAMA_MAX_RAW_CHARS=14000
+```
+
+If Deep Verify still feels slow, try a smaller model such as:
+
+```bash
+export OLLAMA_MODEL=qwen2.5:7b
+```
+
+If your Python installation has local certificate issues when calling the hosted backend over HTTPS, you can temporarily disable backend certificate verification for the local verifier only:
+
+```bash
+export VERIFY_BACKEND_SSL=false
+```
+
+Use that only for troubleshooting on your own machine. The default is `true`.
+
 ## Result
 
 Once both Ollama and the local verifier are running, the hosted UI can trigger Deep Verify and store the updated review audit back into the hosted document record.

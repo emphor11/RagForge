@@ -28,6 +28,8 @@ const STAGE_LABELS = {
   reconnecting: "Reconnecting to saved analysis state…",
 };
 
+const FETCH_TIMEOUT_MS = 20000;
+
 const DocumentAnalysis = () => {
   const { id } = useParams();
   const document_id = decodeURIComponent(id);
@@ -159,10 +161,24 @@ const DocumentAnalysis = () => {
     };
   };
 
+  const fetchWithTimeout = async (url, options = {}) => {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+    try {
+      return await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  };
+
   const loadDocumentInsights = async () => {
     setLoading(true);
     try {
-      await fetchCompletedDocument();
+      await fetchCompletedDocument({ background: false });
       setAnalysisStatus("completed");
       setAnalysisStage("completed");
       return false;
@@ -171,16 +187,18 @@ const DocumentAnalysis = () => {
     }
   };
 
-  const fetchCompletedDocument = async () => {
-    setLoading(true);
+  const fetchCompletedDocument = async ({ background = false } = {}) => {
+    if (!background) {
+      setLoading(true);
+    }
     setError(null);
     try {
       const [insightsRes, overviewRes, clausesRes, risksRes, auditRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/insights/${encodeURIComponent(document_id)}`),
-        fetch(`${API_BASE_URL}/contracts/${encodeURIComponent(document_id)}/overview`),
-        fetch(`${API_BASE_URL}/contracts/${encodeURIComponent(document_id)}/clauses`),
-        fetch(`${API_BASE_URL}/contracts/${encodeURIComponent(document_id)}/risks`),
-        fetch(`${API_BASE_URL}/contracts/${encodeURIComponent(document_id)}/review-audit`),
+        fetchWithTimeout(`${API_BASE_URL}/insights/${encodeURIComponent(document_id)}`),
+        fetchWithTimeout(`${API_BASE_URL}/contracts/${encodeURIComponent(document_id)}/overview`),
+        fetchWithTimeout(`${API_BASE_URL}/contracts/${encodeURIComponent(document_id)}/clauses`),
+        fetchWithTimeout(`${API_BASE_URL}/contracts/${encodeURIComponent(document_id)}/risks`),
+        fetchWithTimeout(`${API_BASE_URL}/contracts/${encodeURIComponent(document_id)}/review-audit`),
       ]);
 
       if (!insightsRes.ok) throw new Error("Document analysis not found");
@@ -223,12 +241,20 @@ const DocumentAnalysis = () => {
       setRawText(data.raw_text || "");
     } catch (err) {
       console.error("Failed to load insights", err);
-      setContractProfile(null);
-      setContractClauses([]);
-      setContractFindings([]);
-      setReviewerNotes({});
-      setContractReviewAudit(null);
-      setError("Failed to load document insights. Please make sure the file exists.");
+      if (!background) {
+        setContractProfile(null);
+        setContractClauses([]);
+        setContractFindings([]);
+        setReviewerNotes({});
+        setContractReviewAudit(null);
+        setError("Failed to load document insights. Please make sure the file exists.");
+      } else {
+        setError("Deep Verify finished locally, but refreshing the hosted document took too long. Please refresh once.");
+      }
+    } finally {
+      if (!background) {
+        setLoading(false);
+      }
     }
   };
 
@@ -376,7 +402,7 @@ const DocumentAnalysis = () => {
         throw new Error(message);
       }
       setLocalVerifyAvailable(true);
-      await fetchCompletedDocument();
+      await fetchCompletedDocument({ background: true });
     } catch (err) {
       console.error(err);
       setLocalVerifyAvailable(false);

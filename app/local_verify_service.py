@@ -1,15 +1,25 @@
 import json
 import os
+import ssl
 from typing import Any
 from urllib import error, parse, request
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import certifi
 
 
 LOCAL_OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 LOCAL_OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+OLLAMA_TIMEOUT_SECONDS = int(os.getenv("OLLAMA_TIMEOUT_SECONDS", "420"))
+OLLAMA_MAX_RAW_CHARS = int(os.getenv("OLLAMA_MAX_RAW_CHARS", "14000"))
+VERIFY_BACKEND_SSL = os.getenv("VERIFY_BACKEND_SSL", "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 
 class VerifyRequest(BaseModel):
@@ -24,7 +34,14 @@ def _http_json(method: str, url: str, payload: dict[str, Any] | None = None) -> 
         data = json.dumps(payload).encode("utf-8")
 
     req = request.Request(url, method=method, data=data, headers=headers)
-    with request.urlopen(req, timeout=120) as response:
+    context = None
+    if url.startswith("https://"):
+        if VERIFY_BACKEND_SSL:
+            context = ssl.create_default_context(cafile=certifi.where())
+        else:
+            context = ssl._create_unverified_context()
+
+    with request.urlopen(req, timeout=OLLAMA_TIMEOUT_SECONDS, context=context) as response:
         body = response.read()
     if not body:
         return None
@@ -45,6 +62,18 @@ def call_ollama(document_payload: dict[str, Any]) -> dict[str, Any]:
     review_findings = document_payload.get("review_findings", [])
     raw_text = document_payload.get("raw_text", "")
     contract_profile = document_payload.get("contract_profile", {})
+
+    compact_findings = [
+        {
+            "title": finding.get("title"),
+            "finding_type": finding.get("finding_type"),
+            "clause_type": finding.get("clause_type"),
+            "severity": finding.get("severity"),
+            "explanation": finding.get("explanation"),
+            "source_quotes": finding.get("source_quotes", [])[:2],
+        }
+        for finding in review_findings[:12]
+    ]
 
     prompt = f"""
 You are performing a deep verification pass for a legal contract review.
@@ -87,10 +116,10 @@ Contract profile:
 {json.dumps(contract_profile, ensure_ascii=True)}
 
 Review findings:
-{json.dumps(review_findings, ensure_ascii=True)}
+{json.dumps(compact_findings, ensure_ascii=True)}
 
 Raw contract text:
-{raw_text[:24000]}
+{raw_text[:OLLAMA_MAX_RAW_CHARS]}
 """
 
     return _http_json(
@@ -176,7 +205,21 @@ def verify_document(payload: VerifyRequest):
             detail=f"Failed to fetch hosted document from {backend_url}.",
         ) from exc
 
-    ollama_result = parse_ollama_response(call_ollama(source_document))
+    try:
+        ollama_result = parse_ollama_response(call_ollama(source_document))
+    except TimeoutError as exc:
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                f"Local Ollama timed out after {OLLAMA_TIMEOUT_SECONDS} seconds. "
+                "Try a smaller model or raise OLLAMA_TIMEOUT_SECONDS."
+            ),
+        ) from exc
+    except error.URLError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Local Ollama request failed: {exc.reason}",
+        ) from exc
     original_findings = source_document.get("review_findings", [])
     merged_findings = merge_verified_findings(
         original_findings,

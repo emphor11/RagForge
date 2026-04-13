@@ -1,5 +1,6 @@
 fastapi
 uvicorn
+certifi
 rank-bm25
 pydantic
 python-dotenv
