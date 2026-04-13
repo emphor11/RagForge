@@ -4,7 +4,7 @@ import os
 import shutil
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -763,6 +763,15 @@ class FindingNoteUpdate(BaseModel):
     reviewer_note: str
 
 
+class VerificationResultPayload(BaseModel):
+    verification_mode: str = "local_ollama"
+    verification_provider: Optional[str] = None
+    verification_summary: Optional[str] = None
+    evaluation: dict[str, Any]
+    review_audit: dict[str, Any]
+    review_findings: Optional[list[dict[str, Any]]] = None
+
+
 @app.post("/query")
 def query_api(request: QueryRequest):
     from app.core.generation.structured_generator import StructuredGenerator
@@ -843,6 +852,34 @@ def update_contract_finding_note(
         "document_id": document_id,
         "finding_index": finding_index,
         "finding": updated_finding,
+    }
+
+
+@app.post("/documents/{document_id}/verify-results")
+def save_verification_results(
+    document_id: str, payload: VerificationResultPayload
+):
+    store = InsightStore()
+    data = store.load(document_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    data["evaluation"] = payload.evaluation
+    data["review_audit"] = payload.review_audit
+    data["verification_mode"] = payload.verification_mode
+    if payload.verification_provider:
+        data["verification_provider"] = payload.verification_provider
+    if payload.verification_summary:
+        data["verification_summary"] = payload.verification_summary
+    if payload.review_findings is not None:
+        data["review_findings"] = payload.review_findings
+
+    store.save(document_id, data)
+
+    return {
+        "document_id": document_id,
+        "status": "saved",
+        "verification_mode": payload.verification_mode,
     }
 
 

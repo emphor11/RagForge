@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
-import { API_BASE_URL } from "../config";
+import { API_BASE_URL, LOCAL_VERIFY_URL } from "../config";
 import DocumentViewer from "../components/DocumentViewer";
 import {
   AlertTriangle,
@@ -48,6 +48,7 @@ const DocumentAnalysis = () => {
   const [showSupplementalAnalysis, setShowSupplementalAnalysis] = useState(false);
   const [updatingFindingIndex, setUpdatingFindingIndex] = useState(null);
   const [verifyLoading, setVerifyLoading] = useState(false);
+  const [localVerifyAvailable, setLocalVerifyAvailable] = useState(false);
   const [findingFilter, setFindingFilter] = useState("all");
   const [reviewerNotes, setReviewerNotes] = useState({});
   const [savingNoteIndex, setSavingNoteIndex] = useState(null);
@@ -103,6 +104,28 @@ const DocumentAnalysis = () => {
     const handler = () => setOverflowOpen(null);
     document.addEventListener("click", handler);
     return () => document.removeEventListener("click", handler);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const checkLocalVerifier = async () => {
+      try {
+        const res = await fetch(`${LOCAL_VERIFY_URL}/health`);
+        if (!cancelled) {
+          setLocalVerifyAvailable(res.ok);
+        }
+      } catch {
+        if (!cancelled) {
+          setLocalVerifyAvailable(false);
+        }
+      }
+    };
+
+    checkLocalVerifier();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const normalizeResult = (data) => {
@@ -332,18 +355,34 @@ const DocumentAnalysis = () => {
     setError(null);
     try {
       const res = await fetch(
-        `${API_BASE_URL}/documents/${encodeURIComponent(document_id)}/verify`,
+        `${LOCAL_VERIFY_URL}/verify`,
         {
           method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            backend_url: API_BASE_URL,
+            document_id,
+          }),
         }
       );
       if (!res.ok) {
-        throw new Error("Verify request failed");
+        let message = "Verify request failed";
+        try {
+          const data = await res.json();
+          message = data.detail || message;
+        } catch {
+          // Ignore parse failures and use the default message.
+        }
+        throw new Error(message);
       }
+      setLocalVerifyAvailable(true);
       await fetchCompletedDocument();
     } catch (err) {
       console.error(err);
-      setError("Failed to run deep verification.");
+      setLocalVerifyAvailable(false);
+      setError(
+        "Deep Verify needs the local verifier running on your machine at 127.0.0.1:11435 with Ollama available."
+      );
     } finally {
       setVerifyLoading(false);
     }
@@ -401,6 +440,8 @@ const DocumentAnalysis = () => {
   // Review audit score
   const auditScore = contractReviewAudit?.score ?? (result?.evaluation?.score || 0);
   const auditStatus = contractReviewAudit?.status || result?.evaluation?.status || "pass";
+  const verificationMode = result?.verification_mode || "fast_review";
+  const verificationSummary = result?.verification_summary || null;
 
   if (loading) {
     return (
@@ -694,7 +735,13 @@ const DocumentAnalysis = () => {
           <div className="stat-card">
             <div className="stat-label">Review Audit</div>
             <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-              {renderProgressRing(auditScore, 52, 4)}
+              {auditStatus === "deferred" ? (
+                <div style={{ fontSize: "14px", color: "var(--text-muted)" }}>
+                  Deferred
+                </div>
+              ) : (
+                renderProgressRing(auditScore, 52, 4)
+              )}
             </div>
           </div>
         </div>
@@ -711,8 +758,17 @@ const DocumentAnalysis = () => {
               {showSupplementalAnalysis ? "Hide" : "Show"} AI Research Notes
             </button>
           )}
-          <button className="btn btn-secondary btn-sm" onClick={handleRunVerify} disabled={verifyLoading}>
-            <Shield /> {verifyLoading ? "Verifying…" : "Run Verify"}
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={handleRunVerify}
+            disabled={verifyLoading}
+            title={
+              localVerifyAvailable
+                ? "Use your local Ollama setup to enrich the audit."
+                : "Start the local verifier service on your machine to enable Deep Verify."
+            }
+          >
+            <Shield /> {verifyLoading ? "Verifying…" : localVerifyAvailable ? "Run Deep Verify" : "Run Deep Verify (Local)"}
           </button>
           <button className="btn btn-primary" onClick={handleExportReport}>
             <Download /> Export Report
@@ -915,12 +971,26 @@ const DocumentAnalysis = () => {
                 <Shield size={16} />
                 Analysis Quality
               </div>
-              <span className={`badge ${auditStatus === "pass" ? "badge-low" : "badge-high"}`} style={{ textTransform: "uppercase" }}>
-                {auditStatus === "pass" ? "Verified" : "Review Required"}
+              <span className={`badge ${auditStatus === "pass" ? "badge-low" : auditStatus === "deferred" ? "badge-neutral" : "badge-high"}`} style={{ textTransform: "uppercase" }}>
+                {auditStatus === "pass" ? "Verified" : auditStatus === "deferred" ? "Fast Review" : "Review Required"}
               </span>
             </div>
-            <div className="quality-score">{auditScore}/100</div>
+            <div className="quality-score">
+              {auditStatus === "deferred" ? "Deferred" : `${auditScore}/100`}
+            </div>
           </div>
+
+          <p style={{ fontSize: "13px", color: "var(--text-muted)", marginTop: "8px", lineHeight: "1.5" }}>
+            {verificationMode === "local_ollama"
+              ? "Deep Verify was completed with your local Ollama setup."
+              : "This document currently shows the hosted Fast Review pass. Run Deep Verify from a machine with the local verifier and Ollama to enrich the audit."}
+          </p>
+
+          {verificationSummary && (
+            <p style={{ fontSize: "13px", color: "var(--text-muted)", marginTop: "12px", lineHeight: "1.5" }}>
+              {verificationSummary}
+            </p>
+          )}
 
           {contractReviewAudit?.grounding_score !== undefined && (
             <div className="quality-metrics">
