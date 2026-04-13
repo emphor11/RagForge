@@ -1,6 +1,7 @@
 from typing import Dict, Any, List
 from thefuzz import fuzz
 import re
+import os
 
 
 class InsightEvaluator:
@@ -247,8 +248,15 @@ class InsightEvaluator:
         if self.embedder is None:
             from sentence_transformers import SentenceTransformer
 
+            local_files_only = os.getenv("LOCAL_MODEL_FILES_ONLY", "true").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
             self.embedder = SentenceTransformer(
-                self.embedder_model_name, local_files_only=True
+                self.embedder_model_name,
+                local_files_only=local_files_only,
             )
         return self.embedder
 

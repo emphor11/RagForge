@@ -1,3 +1,6 @@
+import os
+
+
 class Reranker:
     def __init__(self, model_name="cross-encoder/ms-marco-MiniLM-L-6-v2"):
         self.model_name = model_name
@@ -7,7 +10,16 @@ class Reranker:
         if self.model is None:
             from sentence_transformers import CrossEncoder
 
-            self.model = CrossEncoder(self.model_name, local_files_only=True)
+            local_files_only = os.getenv("LOCAL_MODEL_FILES_ONLY", "true").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+            self.model = CrossEncoder(
+                self.model_name,
+                local_files_only=local_files_only,
+            )
         return self.model
 
     def rerank(self, query, documents, top_k=5):

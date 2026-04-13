@@ -791,6 +791,7 @@ class VerificationResultPayload(BaseModel):
     evaluation: dict[str, Any]
     review_audit: dict[str, Any]
     review_findings: Optional[list[dict[str, Any]]] = None
+    verification_debug: Optional[dict[str, Any]] = None
 
 
 @app.post("/query")
@@ -894,6 +895,8 @@ def save_verification_results(
         data["verification_summary"] = payload.verification_summary
     if payload.review_findings is not None:
         data["review_findings"] = payload.review_findings
+    if payload.verification_debug is not None:
+        data["verification_debug"] = payload.verification_debug
 
     store.save(document_id, data)
 

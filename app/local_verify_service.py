@@ -58,70 +58,7 @@ def save_verification(backend_url: str, document_id: str, payload: dict[str, Any
     return _http_json("POST", f"{backend_url}/documents/{encoded}/verify-results", payload)
 
 
-def call_ollama(document_payload: dict[str, Any]) -> dict[str, Any]:
-    review_findings = document_payload.get("review_findings", [])
-    raw_text = document_payload.get("raw_text", "")
-    contract_profile = document_payload.get("contract_profile", {})
-
-    compact_findings = [
-        {
-            "title": finding.get("title"),
-            "finding_type": finding.get("finding_type"),
-            "clause_type": finding.get("clause_type"),
-            "severity": finding.get("severity"),
-            "explanation": finding.get("explanation"),
-            "source_quotes": finding.get("source_quotes", [])[:2],
-        }
-        for finding in review_findings[:12]
-    ]
-
-    prompt = f"""
-You are performing a deep verification pass for a legal contract review.
-Review the contract profile, the extracted review findings, and the raw source text.
-Return ONLY valid JSON with this exact shape:
-{{
-  "verification_summary": "short summary",
-  "evaluation": {{
-    "score": 0,
-    "status": "pass or fail or deferred",
-    "recommendation": "short recommendation",
-    "issues": ["..."]
-  }},
-  "review_audit": {{
-    "score": 0,
-    "status": "pass or fail or deferred",
-    "recommendation": "short recommendation",
-    "grounding_score": 0.0,
-    "structure_score": 0.0,
-    "coverage_score": 0.0,
-    "issues": ["..."]
-  }},
-  "review_findings": [
-    {{
-      "title": "same title",
-      "confidence": 0.0,
-      "verification_note": "short note"
-    }}
-  ]
-}}
-
-Rules:
-- Keep all scores between 0 and 100 except grounding_score/structure_score/coverage_score which must be between 0.0 and 1.0.
-- review_findings should include one object for each finding in the input, matched by title.
-- Lower confidence if a finding is weakly supported by the raw text.
-- If support is strong, confidence can be high.
-- Do not include markdown or explanation outside JSON.
-
-Contract profile:
-{json.dumps(contract_profile, ensure_ascii=True)}
-
-Review findings:
-{json.dumps(compact_findings, ensure_ascii=True)}
-
-Raw contract text:
-{raw_text[:OLLAMA_MAX_RAW_CHARS]}
-"""
-
+def call_ollama(prompt: str) -> dict[str, Any]:
     return _http_json(
         "POST",
         f"{LOCAL_OLLAMA_URL}/api/generate",
@@ -145,27 +82,6 @@ def parse_ollama_response(response: dict[str, Any]) -> dict[str, Any]:
         ) from exc
 
 
-def merge_verified_findings(
-    original_findings: list[dict[str, Any]], verified_findings: list[dict[str, Any]]
-) -> list[dict[str, Any]]:
-    indexed = {
-        item.get("title", "").strip(): item
-        for item in verified_findings
-        if item.get("title")
-    }
-
-    merged = []
-    for finding in original_findings:
-        patch = indexed.get(finding.get("title", "").strip(), {})
-        updated = dict(finding)
-        if "confidence" in patch:
-            updated["confidence"] = patch["confidence"]
-        if patch.get("verification_note"):
-            updated["verification_note"] = patch["verification_note"]
-        merged.append(updated)
-    return merged
-
-
 app = FastAPI(title="RAGForge Local Verify")
 app.add_middleware(
     CORSMiddleware,
@@ -181,11 +97,20 @@ def health():
     try:
         tags = _http_json("GET", f"{LOCAL_OLLAMA_URL}/api/tags")
         models = tags.get("models", []) if isinstance(tags, dict) else []
+        local_stack = "ready"
+        try:
+            os.environ.setdefault("LOCAL_MODEL_FILES_ONLY", "false")
+            from app.services.local_deep_verify import LocalHybridVerifier
+
+            LocalHybridVerifier("__healthcheck__")
+        except Exception as exc:
+            local_stack = f"unavailable: {exc}"
         return {
             "status": "ok",
             "ollama_url": LOCAL_OLLAMA_URL,
             "model": LOCAL_OLLAMA_MODEL,
             "available_models": [item.get("name") for item in models],
+            "local_parity_stack": local_stack,
         }
     except Exception as exc:
         raise HTTPException(
@@ -206,7 +131,21 @@ def verify_document(payload: VerifyRequest):
         ) from exc
 
     try:
-        ollama_result = parse_ollama_response(call_ollama(source_document))
+        os.environ.setdefault("LOCAL_MODEL_FILES_ONLY", "false")
+        from app.services.local_deep_verify import (
+            LocalHybridVerifier,
+            build_final_verification_payload,
+            build_ollama_prompt,
+        )
+
+        parity_verifier = LocalHybridVerifier(payload.document_id)
+        parity_result = parity_verifier.build_verification_result(source_document)
+        ollama_prompt = build_ollama_prompt(
+            source_document,
+            parity_result,
+            max_context_chars=OLLAMA_MAX_RAW_CHARS,
+        )
+        ollama_result = parse_ollama_response(call_ollama(ollama_prompt))
     except TimeoutError as exc:
         raise HTTPException(
             status_code=504,
@@ -215,53 +154,31 @@ def verify_document(payload: VerifyRequest):
                 "Try a smaller model or raise OLLAMA_TIMEOUT_SECONDS."
             ),
         ) from exc
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Local Deep Verify parity dependencies are missing. "
+                "Install them with `pip install -r requirements-local-verify.txt`."
+            ),
+        ) from exc
     except error.URLError as exc:
         raise HTTPException(
             status_code=503,
             detail=f"Local Ollama request failed: {exc.reason}",
         ) from exc
-    original_findings = source_document.get("review_findings", [])
-    merged_findings = merge_verified_findings(
-        original_findings,
-        ollama_result.get("review_findings", []),
+    verification_payload = build_final_verification_payload(
+        source_document,
+        parity_result,
+        ollama_result,
+        provider=LOCAL_OLLAMA_MODEL,
     )
-
-    verification_payload = {
-        "verification_mode": "local_ollama",
-        "verification_provider": LOCAL_OLLAMA_MODEL,
-        "verification_summary": ollama_result.get(
-            "verification_summary",
-            "Deep verification completed with local Ollama.",
-        ),
-        "evaluation": ollama_result.get(
-            "evaluation",
-            {
-                "score": 0,
-                "status": "deferred",
-                "recommendation": "Local verification did not return an evaluation.",
-                "issues": [],
-            },
-        ),
-        "review_audit": ollama_result.get(
-            "review_audit",
-            {
-                "score": 0,
-                "status": "deferred",
-                "recommendation": "Local verification did not return a review audit.",
-                "grounding_score": 0.0,
-                "structure_score": 0.0,
-                "coverage_score": 0.0,
-                "issues": [],
-            },
-        ),
-        "review_findings": merged_findings,
-    }
 
     save_verification(backend_url, payload.document_id, verification_payload)
     return {
         "status": "completed",
         "document_id": payload.document_id,
-        "verification_mode": "local_ollama",
+        "verification_mode": verification_payload["verification_mode"],
         "provider": LOCAL_OLLAMA_MODEL,
         "summary": verification_payload["verification_summary"],
     }
