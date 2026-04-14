@@ -21,6 +21,8 @@ const Dashboard = ({ onUploadSuccess }) => {
   const [recentDocs, setRecentDocs] = useState([]);
   const [docsLoading, setDocsLoading] = useState(true);
   const [streamState, setStreamState] = useState(null);
+  // Map of docId → "confirming" | undefined for inline delete
+  const [deletingId, setDeletingId] = useState(null);
   const fileInputRef = useRef(null);
   const navigate = useNavigate();
 
@@ -41,12 +43,7 @@ const Dashboard = ({ onUploadSuccess }) => {
     }
   };
 
-  const handleDelete = async (id, e) => {
-    e.stopPropagation();
-    if (!window.confirm(`Are you sure you want to delete "${id}"? This action cannot be undone.`)) {
-      return;
-    }
-
+  const handleDelete = async (id) => {
     try {
       const res = await fetch(`${API_BASE_URL}/documents/${encodeURIComponent(id)}`, {
         method: "DELETE",
@@ -55,11 +52,13 @@ const Dashboard = ({ onUploadSuccess }) => {
       if (res.ok) {
         setRecentDocs(recentDocs.filter((doc) => doc.id !== id));
       } else {
-        alert("Failed to delete document");
+        setError("Failed to delete document.");
       }
     } catch (err) {
       console.error("Delete failed", err);
-      alert("Something went wrong while deleting");
+      setError("Something went wrong while deleting.");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -202,6 +201,20 @@ const Dashboard = ({ onUploadSuccess }) => {
     );
   };
 
+  const getStatusBadge = (doc) => {
+    if (!doc.status || doc.status === "completed") {
+      return <span className="badge badge-low">Completed</span>;
+    }
+    if (doc.status === "failed") {
+      return <span className="badge badge-high">Failed</span>;
+    }
+    return (
+      <span className="badge badge-neutral">
+        {(doc.stage || doc.status).replaceAll("_", " ")}
+      </span>
+    );
+  };
+
   return (
     <div className="dashboard-page">
       {error && (
@@ -210,7 +223,15 @@ const Dashboard = ({ onUploadSuccess }) => {
         </div>
       )}
 
-      {/* Hero Upload Zone */}
+      {/* Page Hero */}
+      <div className="page-hero">
+        <h1 className="page-hero-title">Contract Intelligence</h1>
+        <p className="page-hero-subtitle">
+          Upload a legal agreement to extract clauses, surface risks, and generate a full AI-powered review.
+        </p>
+      </div>
+
+      {/* Upload Zone */}
       <div className="upload-hero">
         <input
           ref={fileInputRef}
@@ -257,7 +278,7 @@ const Dashboard = ({ onUploadSuccess }) => {
                 </>
               ) : (
                 <>
-                  <Upload /> Upload & Analyze
+                  <Upload /> Upload &amp; Analyze
                 </>
               )}
             </button>
@@ -303,6 +324,7 @@ const Dashboard = ({ onUploadSuccess }) => {
                   <tr>
                     <th>Contract Name</th>
                     <th>Uploaded</th>
+                    <th>Status</th>
                     <th>Action</th>
                   </tr>
                 </thead>
@@ -317,13 +339,9 @@ const Dashboard = ({ onUploadSuccess }) => {
                       <td style={{ color: "var(--text-muted)", fontSize: "13px" }}>
                         {formatUploadDate(doc.upload_date)}
                       </td>
+                      <td>{getStatusBadge(doc)}</td>
                       <td>
                         <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
-                          {doc.status && doc.status !== "completed" && (
-                            <span className="badge badge-neutral">
-                              {(doc.stage || doc.status).replaceAll("_", " ")}
-                            </span>
-                          )}
                           <span
                             className="table-link"
                             onClick={() =>
@@ -334,13 +352,33 @@ const Dashboard = ({ onUploadSuccess }) => {
                           >
                             Review →
                           </span>
-                          <button
-                            className="btn-icon btn-icon-danger"
-                            title="Delete Document"
-                            onClick={(e) => handleDelete(doc.id, e)}
-                          >
-                            <Trash2 size={16} />
-                          </button>
+
+                          {/* Inline delete confirmation */}
+                          {deletingId === doc.id ? (
+                            <div className="inline-delete-confirm">
+                              <span>Delete?</span>
+                              <button
+                                className="inline-delete-btn"
+                                onClick={() => handleDelete(doc.id)}
+                              >
+                                Yes
+                              </button>
+                              <button
+                                className="inline-cancel-btn"
+                                onClick={() => setDeletingId(null)}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              className="btn-icon btn-icon-danger"
+                              title="Delete Document"
+                              onClick={() => setDeletingId(doc.id)}
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

@@ -1,4 +1,4 @@
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import {
   LayoutDashboard,
@@ -7,10 +7,12 @@ import {
   TrendingUp,
   FileText,
   Scale,
+  Plus,
 } from "lucide-react";
 
 const Sidebar = ({ currentDocId }) => {
   const [recentDocs, setRecentDocs] = useState([]);
+  const navigate = useNavigate();
 
   useEffect(() => {
     try {
@@ -72,6 +74,8 @@ const Sidebar = ({ currentDocId }) => {
           </NavLink>
         ))}
 
+        {/* Visual divider before Recent Documents */}
+        <div className="sidebar-divider" style={{ margin: "12px 8px 4px" }} />
         <div className="sidebar-section-title">Recent Documents</div>
 
         {recentDocs.length > 0 ? (
@@ -82,12 +86,13 @@ const Sidebar = ({ currentDocId }) => {
               className={({ isActive }) =>
                 `sidebar-item ${isActive ? "active" : ""}`
               }
+              title={docId}
             >
               <span className="sidebar-item-icon">
                 <FileText />
               </span>
               <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {docId.length > 18 ? docId.slice(0, 18) + "…" : docId}
+                {docId.length > 20 ? docId.slice(0, 20) + "…" : docId}
               </span>
               <span className="sidebar-doc-badge">{guessDocType(docId)}</span>
             </NavLink>
@@ -102,7 +107,17 @@ const Sidebar = ({ currentDocId }) => {
         )}
       </nav>
 
-      <div className="sidebar-bottom" />
+      {/* Footer */}
+      <div className="sidebar-bottom">
+        <button
+          className="sidebar-new-analysis"
+          onClick={() => navigate("/")}
+        >
+          <Plus />
+          New Analysis
+        </button>
+        <div className="sidebar-footer-text">v2 · Legal Intelligence</div>
+      </div>
     </aside>
   );
 };

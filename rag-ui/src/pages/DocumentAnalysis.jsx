@@ -15,6 +15,8 @@ import {
   Shield,
   ChevronDown,
   ChevronRight,
+  FileText,
+  PenLine,
 } from "lucide-react";
 
 const STAGE_LABELS = {
@@ -48,7 +50,7 @@ const DocumentAnalysis = () => {
   const [queryResult, setQueryResult] = useState(null);
   const [queryLoading, setQueryLoading] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
-  const [showSupplementalAnalysis, setShowSupplementalAnalysis] = useState(false);
+  const [showAiNotes, setShowAiNotes] = useState(true);
   const [updatingFindingIndex, setUpdatingFindingIndex] = useState(null);
   const [verifyLoading, setVerifyLoading] = useState(false);
   const [localVerifyAvailable, setLocalVerifyAvailable] = useState(false);
@@ -58,6 +60,8 @@ const DocumentAnalysis = () => {
   const [expandedFindings, setExpandedFindings] = useState({});
   const [overflowOpen, setOverflowOpen] = useState(null);
   const [expandedClauses, setExpandedClauses] = useState({});
+  // Track which finding cards have the note area open
+  const [openNoteIndices, setOpenNoteIndices] = useState({});
 
   const [rawText, setRawText] = useState("");
   const [activeQuote, setActiveQuote] = useState(null);
@@ -320,7 +324,6 @@ const DocumentAnalysis = () => {
 
   const handleQuery = async () => {
     if (!query || queryLoading) return;
-    setChatOpen(true);
     setQueryLoading(true);
     try {
       const res = await fetch(`${API_BASE_URL}/query`, {
@@ -480,6 +483,11 @@ const DocumentAnalysis = () => {
     missing: contractClauses.filter((c) => !c.clause_text && !c.text_preview).length,
   };
 
+  // Derived counts for stats
+  const criticalCount = contractFindings.filter(
+    (f) => f.severity?.toLowerCase() === "high"
+  ).length;
+
   // Review audit score
   const auditScore = contractReviewAudit?.score ?? (result?.evaluation?.score || 0);
   const auditStatus = contractReviewAudit?.status || result?.evaluation?.status || "pass";
@@ -524,11 +532,42 @@ const DocumentAnalysis = () => {
   }
 
   /* ============================
+     RENDER: Progress Ring
+     ============================ */
+  const renderProgressRing = (value, size = 64, stroke = 5) => {
+    const radius = (size - stroke) / 2;
+    const circumference = 2 * Math.PI * radius;
+    const offset = circumference - (value / 100) * circumference;
+    const color = value >= 80 ? "var(--success)" : value >= 50 ? "var(--warning)" : "var(--danger)";
+
+    return (
+      <div className="progress-ring" style={{ width: size, height: size }}>
+        <svg width={size} height={size}>
+          <circle className="progress-ring-bg" cx={size / 2} cy={size / 2} r={radius} strokeWidth={stroke} />
+          <circle
+            className="progress-ring-fill"
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            strokeWidth={stroke}
+            stroke={color}
+            strokeDasharray={circumference}
+            strokeDashoffset={offset}
+            strokeLinecap="round"
+          />
+        </svg>
+        <span className="progress-ring-text" style={{ fontSize: "16px" }}>{value}%</span>
+      </div>
+    );
+  };
+
+  /* ============================
      RENDER: Finding Card
      ============================ */
   const renderFindingCard = (finding, idx, isMissing = false) => {
     const sev = getSeverityClass(finding.severity);
     const isExpanded = expandedFindings[idx];
+    const isNoteOpen = openNoteIndices[idx];
 
     return (
       <div key={`${finding.title}-${idx}`} className={`finding-card severity-${sev}`}>
@@ -551,6 +590,7 @@ const DocumentAnalysis = () => {
           className={`finding-description ${isExpanded ? "expanded" : ""}`}
           onClick={() => setExpandedFindings((prev) => ({ ...prev, [idx]: !prev[idx] }))}
           style={{ cursor: "pointer" }}
+          title={isExpanded ? "Click to collapse" : "Click to expand"}
         >
           {finding.explanation}
         </div>
@@ -636,69 +676,124 @@ const DocumentAnalysis = () => {
           </span>
         </div>
 
-        {/* Reviewer Note */}
-        <div className="reviewer-note-area">
-          <textarea
-            value={reviewerNotes[idx] || ""}
-            onChange={(e) =>
-              setReviewerNotes((current) => ({ ...current, [idx]: e.target.value }))
-            }
-            placeholder="Add review note…"
-            rows={2}
-          />
-          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "6px" }}>
-            <button
-              className="btn btn-secondary btn-sm"
-              disabled={savingNoteIndex === idx}
-              onClick={() => handleReviewerNoteSave(idx)}
-            >
-              {savingNoteIndex === idx ? "…" : "Save Note"}
-            </button>
+        {/* Reviewer Note — collapsed behind "Add Note" toggle */}
+        <button
+          className="reviewer-note-toggle"
+          onClick={() =>
+            setOpenNoteIndices((prev) => ({ ...prev, [idx]: !prev[idx] }))
+          }
+        >
+          <PenLine />
+          {isNoteOpen
+            ? "Hide Note"
+            : reviewerNotes[idx]
+              ? "Edit Note"
+              : "Add Note"}
+        </button>
+
+        {isNoteOpen && (
+          <div className="reviewer-note-area reviewer-note-area-expanded">
+            <textarea
+              value={reviewerNotes[idx] || ""}
+              onChange={(e) =>
+                setReviewerNotes((current) => ({ ...current, [idx]: e.target.value }))
+              }
+              placeholder="Add review note…"
+              rows={2}
+            />
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "6px" }}>
+              <button
+                className="btn btn-secondary btn-sm"
+                disabled={savingNoteIndex === idx}
+                onClick={() => handleReviewerNoteSave(idx)}
+              >
+                {savingNoteIndex === idx ? "…" : "Save Note"}
+              </button>
+            </div>
           </div>
-        </div>
-      </div>
-    );
-  };
-
-  /* ============================
-     RENDER: Progress Ring
-     ============================ */
-  const renderProgressRing = (value, size = 64, stroke = 5) => {
-    const radius = (size - stroke) / 2;
-    const circumference = 2 * Math.PI * radius;
-    const offset = circumference - (value / 100) * circumference;
-    const color = value >= 80 ? "var(--success)" : value >= 50 ? "var(--warning)" : "var(--danger)";
-
-    return (
-      <div className="progress-ring" style={{ width: size, height: size }}>
-        <svg width={size} height={size}>
-          <circle className="progress-ring-bg" cx={size / 2} cy={size / 2} r={radius} strokeWidth={stroke} />
-          <circle
-            className="progress-ring-fill"
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
-            strokeWidth={stroke}
-            stroke={color}
-            strokeDasharray={circumference}
-            strokeDashoffset={offset}
-            strokeLinecap="round"
-          />
-        </svg>
-        <span className="progress-ring-text" style={{ fontSize: "16px" }}>{value}%</span>
+        )}
       </div>
     );
   };
 
   return (
     <div className="analysis-page">
+
+      {/* ===== STICKY ANALYSIS HEADER ===== */}
+      <div className="analysis-header">
+        <div className="analysis-header-doc">
+          <div className="analysis-header-doc-icon">
+            <FileText />
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div
+              className="analysis-header-filename"
+              title={document_id}
+            >
+              {document_id}
+            </div>
+            <div className="analysis-header-meta">
+              {contractProfile?.document_type && (
+                <span className="badge badge-neutral" style={{ fontSize: "11px" }}>
+                  {formatDocumentType(contractProfile.document_type)}
+                </span>
+              )}
+              {contractProfile?.governing_law && (
+                <span style={{ fontSize: "11px", color: "var(--text-faint)" }}>
+                  {contractProfile.governing_law}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Compact audit ring in header */}
+        {auditStatus !== "deferred" && (
+          <div title={`Review Audit: ${auditScore}/100`} style={{ flexShrink: 0 }}>
+            {renderProgressRing(auditScore, 40, 3.5)}
+          </div>
+        )}
+
+        {/* Action buttons — always visible in header */}
+        <div className="analysis-header-actions">
+          {isContractReview && result && (
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => setChatOpen((prev) => !prev)}
+              title="Open document-specific assistant"
+            >
+              <MessageSquare />
+              <span>{chatOpen ? "Close Chat" : "Document Chat"}</span>
+            </button>
+          )}
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={handleRunVerify}
+            disabled={verifyLoading}
+            title={
+              localVerifyAvailable
+                ? "Use your local Ollama setup to enrich the audit."
+                : "Start the local verifier service on your machine to enable Deep Verify."
+            }
+          >
+            <Shield />
+            <span>{verifyLoading ? "Verifying…" : "Deep Verify"}</span>
+          </button>
+          <button className="btn btn-primary btn-sm" onClick={handleExportReport}>
+            <Download />
+            <span>Export Report</span>
+          </button>
+        </div>
+      </div>
+
+      {/* ===== ERROR BANNER ===== */}
       {error && (
         <div className="error-banner">
           <AlertTriangle /> {error}
         </div>
       )}
 
-      {/* ===== CONTEXT WARNING (inline notice inside overview) ===== */}
+      {/* ===== CONTEXT WARNING ===== */}
       {result.context_quality && result.context_quality !== "full" && (
         <div className="context-notice">
           <Info />
@@ -719,27 +814,27 @@ const DocumentAnalysis = () => {
               Non-Legal Document Detected
             </div>
             <p className="empty-state-desc" style={{ maxWidth: '600px', margin: '12px auto 24px', fontSize: '15px' }}>
-              RAGForge v2 is a specialized legal intelligence platform optimized for formal legal agreements (NDAs, MSAs, SOWs, etc.). 
+              RAGForge v2 is a specialized legal intelligence platform optimized for formal legal agreements (NDAs, MSAs, SOWs, etc.).
               <br /><br />
               This document does not appear to contain a standard contractual structure or binding legal relationship. To protect the accuracy of your audits, we have skipped the legal analysis for this file.
             </p>
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
-              <button 
+              <button
                 className="btn btn-secondary"
                 onClick={() => window.history.back()}
               >
                 Go Back
               </button>
-              <button 
+              <button
                 className="btn btn-primary"
                 onClick={() => window.location.href = '/'}
               >
                 Return to Dashboard
               </button>
             </div>
-            
+
             {result?.summary && (
-              <div style={{ marginTop: '32px', textAlign: 'left', borderTop: '1px solid var(--border-light)', paddingTop: '24px' }}>
+              <div style={{ marginTop: '32px', textAlign: 'left', borderTop: '1px solid var(--border-default)', paddingTop: '24px' }}>
                 <div className="card-title" style={{ fontSize: '14px', marginBottom: '8px', color: 'var(--text-primary)' }}>General Summary (Informational Only)</div>
                 <p style={{ fontSize: '13px', color: 'var(--text-muted)', lineHeight: '1.6' }}>{result.summary}</p>
               </div>
@@ -748,16 +843,10 @@ const DocumentAnalysis = () => {
         </div>
       )}
 
-      {/* ===== STATS ROW ===== */}
+      {/* ===== KPI STATS ROW ===== */}
       {contractProfile?.is_legal_document !== false && (
         <div className="stats-row">
-          <div className="stat-card">
-            <div className="stat-label">
-              {isContractReview ? "Analyzed Agreement" : "Analyzing File"}
-            </div>
-            <div className="stat-value-sm">{document_id}</div>
-          </div>
-          <div className="stat-card">
+          <div className="stat-card stat-card-findings">
             <div className="stat-label">
               {isContractReview ? "Review Findings" : "Grounded Insights"}
             </div>
@@ -765,7 +854,13 @@ const DocumentAnalysis = () => {
               {isContractReview ? contractFindings.length : (result.key_insights?.length || 0)}
             </div>
           </div>
-          <div className="stat-card">
+          <div className="stat-card stat-card-critical">
+            <div className="stat-label">Critical Risks</div>
+            <div className="stat-value" style={{ color: criticalCount > 0 ? "var(--danger)" : "var(--text-primary)" }}>
+              {criticalCount}
+            </div>
+          </div>
+          <div className="stat-card stat-card-clauses">
             <div className="stat-label">
               {isContractReview ? "Clauses Indexed" : "Avg Grounding"}
             </div>
@@ -775,179 +870,18 @@ const DocumentAnalysis = () => {
                 : `${(result.overall_confidence * 100).toFixed(0)}%`}
             </div>
           </div>
-          <div className="stat-card">
-            <div className="stat-label">Review Audit</div>
+          <div className="stat-card stat-card-audit">
+            <div className="stat-label">Review Audit Score</div>
             <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
               {auditStatus === "deferred" ? (
-                <div style={{ fontSize: "14px", color: "var(--text-muted)" }}>
-                  Deferred
-                </div>
+                <div style={{ fontSize: "14px", color: "var(--text-muted)" }}>Deferred</div>
               ) : (
-                renderProgressRing(auditScore, 52, 4)
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <div className="stat-value">{auditScore}</div>
+                  <div style={{ fontSize: "13px", color: "var(--text-muted)" }}>/100</div>
+                </div>
               )}
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* ===== ACTIONS ROW ===== */}
-      {isContractReview && (
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "20px", gap: "8px" }}>
-          <button
-            className="btn btn-ghost btn-sm"
-            onClick={() => setChatOpen((prev) => !prev)}
-            title="Open a document-specific assistant for this contract."
-          >
-            <MessageSquare /> {chatOpen ? "Hide Document Chat" : "Document Chat"}
-          </button>
-          {isContractReview && result && (
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={() => setShowSupplementalAnalysis(!showSupplementalAnalysis)}
-            >
-              {showSupplementalAnalysis ? "Hide" : "Show"} AI Research Notes
-            </button>
-          )}
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={handleRunVerify}
-            disabled={verifyLoading}
-            title={
-              localVerifyAvailable
-                ? "Use your local Ollama setup to enrich the audit."
-                : "Start the local verifier service on your machine to enable Deep Verify."
-            }
-          >
-            <Shield /> {verifyLoading ? "Verifying…" : localVerifyAvailable ? "Run Deep Verify" : "Run Deep Verify (Local)"}
-          </button>
-          <button className="btn btn-primary" onClick={handleExportReport}>
-            <Download /> Export Report
-          </button>
-        </div>
-      )}
-
-      {chatOpen && (
-        <div className="doc-chat-shell">
-          <div className="qa-section doc-chat-panel">
-            {queryResult && queryResult.reasoning && (
-              <div className="reasoning-block">
-                <strong>Thought Process</strong>
-                <p>{queryResult.reasoning}</p>
-              </div>
-            )}
-
-            <div className="doc-chat-header">
-              <div>
-                <div className="qa-title">Document Chat</div>
-                <div className="qa-subtitle" style={{ marginBottom: 0 }}>
-                  Ask focused questions about this specific agreement.
-                </div>
-              </div>
-              <button className="btn btn-ghost btn-sm" onClick={() => setChatOpen(false)}>
-                Close
-              </button>
-            </div>
-
-            {queryResult && queryResult.context_quality !== "full" && (
-              <div className="context-notice" style={{ marginBottom: "12px" }}>
-                <AlertTriangle />
-                <span className="context-notice-text">
-                  <strong>Partial Context:</strong> {queryResult.context_gap}
-                </span>
-              </div>
-            )}
-
-            <div className="qa-input-row">
-              <input
-                className="qa-input"
-                placeholder={
-                  contractProfile
-                    ? "e.g., What is the governing law? Is there a termination right?"
-                    : "e.g., Extract the implementation plan from section 4."
-                }
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleQuery()}
-                disabled={queryLoading}
-              />
-              <button
-                className="btn btn-primary"
-                onClick={handleQuery}
-                disabled={queryLoading}
-              >
-                {queryLoading ? <span className="spinner" /> : "Ask"}
-              </button>
-            </div>
-
-            {!queryResult && (
-              <div className="qa-chips">
-                {[
-                  "What is the liability cap?",
-                  "Is there a non-compete clause?",
-                  "What are the termination rights?",
-                ].map((q) => (
-                  <button
-                    key={q}
-                    className="qa-chip"
-                    onClick={() => {
-                      setQuery(q);
-                    }}
-                  >
-                    {q}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {queryResult && (
-              <div className="qa-response">
-                <div className="qa-response-header">
-                  <Shield size={14} /> Grounded Intelligence Answer
-                </div>
-                <div className="qa-response-text">
-                  {queryResult.answer || queryResult.summary}
-                </div>
-
-                {queryResult.citations?.length > 0 && (
-                  <div className="qa-citations">
-                    <div className="qa-citations-label">Supporting Evidence (Verbatim)</div>
-                    {queryResult.citations.map((cite, i) => (
-                      <div key={i} style={{ marginBottom: "12px" }}>
-                        <div
-                          className="source-quote"
-                          onClick={() => setActiveQuote(cite.quote)}
-                          title="Click to verify in source"
-                        >
-                          "{cite.quote}"
-                        </div>
-                        <div style={{ fontSize: "12px", color: "var(--text-muted)", fontStyle: "italic", paddingLeft: "14px", marginTop: "2px" }}>
-                          — {cite.relevance}
-                        </div>
-                      </div>
-                    ))}
-                    <div style={{ textAlign: "right" }}>
-                      <span className="finding-confidence">
-                        Grounded: {(queryResult.confidence * 100).toFixed(0)}%
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {!queryResult.citations && queryResult.key_insights?.length > 0 && (
-                  <div className="qa-citations">
-                    <div className="qa-citations-label">Supporting Evidence</div>
-                    {queryResult.key_insights.map((ins, i) => (
-                      <div key={i} style={{ marginBottom: "8px" }}>
-                        <div className="source-quote" style={{ cursor: "default" }}>"{ins.source}"</div>
-                        <div style={{ textAlign: "right", fontSize: "12px", color: "var(--text-faint)", marginTop: "2px" }}>
-                          Grounded: {(ins.confidence * 100).toFixed(0)}%
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         </div>
       )}
@@ -960,6 +894,16 @@ const DocumentAnalysis = () => {
           </div>
           <div className="card-body">
 
+            {/* Parties Banner — prominent at top */}
+            {contractProfile.parties?.length > 0 && (
+              <div className="parties-banner">
+                <span className="parties-banner-label">Parties</span>
+                {contractProfile.parties.map((party, idx) => (
+                  <span key={`${party}-${idx}`} className="party-tag">{party}</span>
+                ))}
+              </div>
+            )}
+
             {/* Inline context warning */}
             {result.context_quality && result.context_quality !== "full" && (
               <div className="context-notice" style={{ marginBottom: "16px" }}>
@@ -970,7 +914,7 @@ const DocumentAnalysis = () => {
               </div>
             )}
 
-            <div className="overview-grid">
+            <div className="overview-grid" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
               <div>
                 <div className="overview-field-label">Document Type</div>
                 <div className="overview-field-value">{formatDocumentType(contractProfile.document_type)}</div>
@@ -996,24 +940,11 @@ const DocumentAnalysis = () => {
                 <div className="overview-field-value">{contractProfile.renewal_mechanics || "Not detected"}</div>
               </div>
             </div>
-
-            <div style={{ marginTop: "16px" }}>
-              <div className="overview-field-label">Parties</div>
-              {contractProfile.parties?.length ? (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "6px" }}>
-                  {contractProfile.parties.map((party, idx) => (
-                    <span key={`${party}-${idx}`} className="party-tag">{party}</span>
-                  ))}
-                </div>
-              ) : (
-                <div className="overview-field-value">Not detected</div>
-              )}
-            </div>
           </div>
         </div>
       )}
 
-      {/* ===== REVIEW FINDINGS ===== */}
+      {/* ===== EXECUTIVE SUMMARY ===== */}
       {result?.summary && (
         <div className="card" style={{ marginBottom: "var(--section-gap)" }}>
           <div className="card-header">
@@ -1029,85 +960,84 @@ const DocumentAnalysis = () => {
         </div>
       )}
 
+      {/* ===== CONTRACT REVIEW FINDINGS ===== */}
       {contractFindings.length > 0 && (
-        <div style={{ marginBottom: "var(--section-gap)" }}>
-          <div className="card" style={{ marginBottom: "var(--section-gap)" }}>
-            <div className="card-header">
-              <div className="card-title">Contract Review Findings</div>
-              <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>
-                {contractFindings.length} total
-              </span>
+        <div className="card" style={{ marginBottom: "var(--section-gap)" }}>
+          <div className="card-header">
+            <div className="card-title">Contract Review Findings</div>
+            <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>
+              {contractFindings.length} total
+            </span>
+          </div>
+          <div className="card-body">
+            {/* Filter bar */}
+            <div className="filter-bar">
+              {[
+                ["all", "All"],
+                ["open", "Open"],
+                ["accepted", "Accepted"],
+                ["dismissed", "Dismissed"],
+                ["escalated", "Escalated"],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  className={`filter-btn ${findingFilter === value ? "active" : ""}`}
+                  onClick={() => setFindingFilter(value)}
+                >
+                  {label} ({findingCounts[value]})
+                </button>
+              ))}
             </div>
-            <div className="card-body">
-              {/* Filter bar */}
-              <div className="filter-bar">
-                {[
-                  ["all", "All"],
-                  ["open", "Open"],
-                  ["accepted", "Accepted"],
-                  ["dismissed", "Dismissed"],
-                  ["escalated", "Escalated"],
-                ].map(([value, label]) => (
-                  <button
-                    key={value}
-                    className={`filter-btn ${findingFilter === value ? "active" : ""}`}
-                    onClick={() => setFindingFilter(value)}
-                  >
-                    {label} ({findingCounts[value]})
-                  </button>
-                ))}
+
+            {/* Risk Findings */}
+            {riskFindings.length > 0 && (
+              <div style={{ marginBottom: "20px" }}>
+                <div style={{
+                  fontSize: "13px",
+                  fontWeight: 500,
+                  color: "var(--text-muted)",
+                  marginBottom: "12px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px"
+                }}>
+                  <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "var(--danger)", flexShrink: 0 }} />
+                  Risk Findings ({riskFindings.length})
+                </div>
+                {riskFindings.map((finding) => {
+                  const idx = contractFindings.indexOf(finding);
+                  return renderFindingCard(finding, idx, false);
+                })}
               </div>
+            )}
 
-              {/* Risk Findings */}
-              {riskFindings.length > 0 && (
-                <div style={{ marginBottom: "20px" }}>
-                  <div style={{
-                    fontSize: "13px",
-                    fontWeight: 500,
-                    color: "var(--text-muted)",
-                    marginBottom: "12px",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "6px"
-                  }}>
-                    <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "var(--danger)" }} />
-                    Risk Findings ({riskFindings.length})
-                  </div>
-                  {riskFindings.map((finding) => {
-                    const idx = contractFindings.indexOf(finding);
-                    return renderFindingCard(finding, idx, false);
-                  })}
+            {/* Missing Protections */}
+            {missingProtections.length > 0 && (
+              <div>
+                <div style={{
+                  fontSize: "13px",
+                  fontWeight: 500,
+                  color: "var(--text-muted)",
+                  marginBottom: "12px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px"
+                }}>
+                  <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "var(--warning)", flexShrink: 0 }} />
+                  Missing Protections ({missingProtections.length})
                 </div>
-              )}
+                {missingProtections.map((finding) => {
+                  const idx = contractFindings.indexOf(finding);
+                  return renderFindingCard(finding, idx, true);
+                })}
+              </div>
+            )}
 
-              {/* Missing Protections */}
-              {missingProtections.length > 0 && (
-                <div>
-                  <div style={{
-                    fontSize: "13px",
-                    fontWeight: 500,
-                    color: "var(--text-muted)",
-                    marginBottom: "12px",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "6px"
-                  }}>
-                    <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "var(--warning)" }} />
-                    Missing Protections ({missingProtections.length})
-                  </div>
-                  {missingProtections.map((finding) => {
-                    const idx = contractFindings.indexOf(finding);
-                    return renderFindingCard(finding, idx, true);
-                  })}
-                </div>
-              )}
-
-              {filteredFindings.length === 0 && (
-                <p style={{ fontSize: "13px", color: "var(--text-muted)", padding: "12px 0" }}>
-                  No findings match this filter.
-                </p>
-              )}
-            </div>
+            {filteredFindings.length === 0 && (
+              <p style={{ fontSize: "13px", color: "var(--text-muted)", padding: "12px 0" }}>
+                No findings match this filter.
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -1117,11 +1047,12 @@ const DocumentAnalysis = () => {
         <div className="card" style={{ marginBottom: "var(--section-gap)" }}>
           <div className="card-header">
             <div className="card-title">Clause Inventory</div>
+            <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>
+              <span style={{ color: "var(--success)", fontWeight: 500 }}>{clauseStatusCounts.present}</span> present ·{" "}
+              <span style={{ color: "var(--danger)", fontWeight: 500 }}>{clauseStatusCounts.missing}</span> missing
+            </span>
           </div>
           <div className="card-body">
-            <div className="clause-summary-bar">
-              {clauseStatusCounts.present} present · {clauseStatusCounts.missing} missing
-            </div>
             {contractClauses.map((clause, idx) => {
               const hasContent = clause.clause_text || clause.text_preview;
               const status = hasContent ? "present" : "missing";
@@ -1208,61 +1139,81 @@ const DocumentAnalysis = () => {
         </div>
       )}
 
-      {/* ===== SUPPLEMENTAL AI RESEARCH NOTES ===== */}
-      {(!isContractReview || showSupplementalAnalysis) && result && (
-        <>
-          <div className="two-col-grid">
-            <div className="card">
-              <div className="card-header">
-                <div className="card-title">
-                  {isContractReview ? "AI Research: Strategic Insights" : "Key Insights"}
+      {/* ===== AI RESEARCH NOTES (always visible, collapsible) ===== */}
+      {result && (
+        <div style={{ marginBottom: "var(--section-gap)" }}>
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: showAiNotes ? "16px" : "0"
+          }}>
+            <div style={{ fontSize: "14px", fontWeight: 500, color: "var(--text-primary)" }}>
+              {isContractReview ? "AI Research Notes" : "Key Insights & Actions"}
+            </div>
+            <button
+              className={`section-collapse-btn ${showAiNotes ? "" : "collapsed"}`}
+              onClick={() => setShowAiNotes((prev) => !prev)}
+            >
+              <ChevronDown />
+              {showAiNotes ? "Collapse" : "Expand"}
+            </button>
+          </div>
+
+          {showAiNotes && (
+            <div className="two-col-grid">
+              <div className="card">
+                <div className="card-header">
+                  <div className="card-title">
+                    {isContractReview ? "Strategic Insights" : "Key Insights"}
+                  </div>
                 </div>
-              </div>
-              <div className="card-body">
-                {result.key_insights?.length ? (
-                  result.key_insights.map((i, idx) => (
-                    <div key={idx} className="insight-feed-item">
-                      <span className="insight-severity-dot low" />
-                      <div>
-                        <div className="insight-feed-text">{i.insight}</div>
-                        <div className="source-quote" style={{ margin: "6px 0 0", cursor: "default" }}>
-                          "{i.source}"
-                        </div>
-                        <div style={{ fontSize: "12px", color: "var(--text-faint)", marginTop: "4px" }}>
-                          Grounded: {(i.confidence * 100).toFixed(0)}%
+                <div className="card-body">
+                  {result.key_insights?.length ? (
+                    result.key_insights.map((i, idx) => (
+                      <div key={idx} className="insight-feed-item">
+                        <span className="insight-severity-dot low" />
+                        <div>
+                          <div className="insight-feed-text">{i.insight}</div>
+                          <div className="source-quote" style={{ margin: "6px 0 0", cursor: "default" }}>
+                            "{i.source}"
+                          </div>
+                          <div style={{ fontSize: "12px", color: "var(--text-faint)", marginTop: "4px" }}>
+                            Grounded: {(i.confidence * 100).toFixed(0)}%
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))
-                ) : (
-                  <p style={{ fontSize: "13px", color: "var(--text-muted)", lineHeight: "1.6" }}>
-                    No distinct strategic insights were generated beyond the contract overview and review findings.
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <div className="card">
-              <div className="card-header">
-                <div className="card-title">
-                  {isContractReview ? "AI Research: Actions" : "Recommended Actions"}
+                    ))
+                  ) : (
+                    <p style={{ fontSize: "13px", color: "var(--text-muted)", lineHeight: "1.6" }}>
+                      No distinct strategic insights were generated beyond the contract overview and review findings.
+                    </p>
+                  )}
                 </div>
               </div>
-              <div className="card-body">
-                {result.recommended_actions?.map((a, idx) => (
-                  <div key={idx} className="insight-feed-item">
-                    <span className="insight-severity-dot medium" />
-                    <div style={{ flex: 1 }}>
-                      <span className="insight-feed-text" style={{ fontWeight: 500 }}>{a.action}</span>
-                      <p style={{ fontSize: "12px", color: "var(--text-muted)", margin: "4px 0" }}>{a.rationale}</p>
-                      <div className="source-quote" style={{ margin: "4px 0 0", cursor: "default" }}>"{a.source}"</div>
-                    </div>
+
+              <div className="card">
+                <div className="card-header">
+                  <div className="card-title">
+                    {isContractReview ? "Recommended Actions" : "Recommended Actions"}
                   </div>
-                ))}
+                </div>
+                <div className="card-body">
+                  {result.recommended_actions?.map((a, idx) => (
+                    <div key={idx} className="insight-feed-item">
+                      <span className="insight-severity-dot medium" />
+                      <div style={{ flex: 1 }}>
+                        <span className="insight-feed-text" style={{ fontWeight: 500 }}>{a.action}</span>
+                        <p style={{ fontSize: "12px", color: "var(--text-muted)", margin: "4px 0" }}>{a.rationale}</p>
+                        <div className="source-quote" style={{ margin: "4px 0 0", cursor: "default" }}>"{a.source}"</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
-        </>
+          )}
+        </div>
       )}
 
       {/* ===== LEGAL DISCLAIMER ===== */}
@@ -1275,11 +1226,137 @@ const DocumentAnalysis = () => {
         </p>
       </div>
 
+      {/* ===== DOCUMENT VIEWER (source verification modal) ===== */}
       <DocumentViewer
         rawText={rawText}
         highlightQuote={activeQuote}
         onClose={() => setActiveQuote(null)}
       />
+
+      {/* ===== DOCUMENT CHAT DRAWER ===== */}
+      <div className={`chat-drawer ${chatOpen ? "open" : ""}`}>
+        <div className="chat-drawer-header">
+          <div>
+            <div className="qa-title">Document Chat</div>
+            <div className="qa-subtitle" style={{ marginBottom: 0 }}>
+              Ask focused questions about this specific agreement.
+            </div>
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={() => setChatOpen(false)}>
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="chat-drawer-body">
+          {queryResult && queryResult.reasoning && (
+            <div className="reasoning-block">
+              <strong>Thought Process</strong>
+              <p>{queryResult.reasoning}</p>
+            </div>
+          )}
+
+          {queryResult && queryResult.context_quality !== "full" && (
+            <div className="context-notice">
+              <AlertTriangle />
+              <span className="context-notice-text">
+                <strong>Partial Context:</strong> {queryResult.context_gap}
+              </span>
+            </div>
+          )}
+
+          {!queryResult && (
+            <div className="qa-chips">
+              {[
+                "What is the liability cap?",
+                "Is there a non-compete clause?",
+                "What are the termination rights?",
+              ].map((q) => (
+                <button
+                  key={q}
+                  className="qa-chip"
+                  onClick={() => { setQuery(q); }}
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {queryResult && (
+            <div className="qa-response">
+              <div className="qa-response-header">
+                <Shield size={14} /> Grounded Intelligence Answer
+              </div>
+              <div className="qa-response-text">
+                {queryResult.answer || queryResult.summary}
+              </div>
+
+              {queryResult.citations?.length > 0 && (
+                <div className="qa-citations">
+                  <div className="qa-citations-label">Supporting Evidence (Verbatim)</div>
+                  {queryResult.citations.map((cite, i) => (
+                    <div key={i} style={{ marginBottom: "12px" }}>
+                      <div
+                        className="source-quote"
+                        onClick={() => setActiveQuote(cite.quote)}
+                        title="Click to verify in source"
+                      >
+                        "{cite.quote}"
+                      </div>
+                      <div style={{ fontSize: "12px", color: "var(--text-muted)", fontStyle: "italic", paddingLeft: "14px", marginTop: "2px" }}>
+                        — {cite.relevance}
+                      </div>
+                    </div>
+                  ))}
+                  <div style={{ textAlign: "right" }}>
+                    <span className="finding-confidence">
+                      Grounded: {(queryResult.confidence * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {!queryResult.citations && queryResult.key_insights?.length > 0 && (
+                <div className="qa-citations">
+                  <div className="qa-citations-label">Supporting Evidence</div>
+                  {queryResult.key_insights.map((ins, i) => (
+                    <div key={i} style={{ marginBottom: "8px" }}>
+                      <div className="source-quote" style={{ cursor: "default" }}>"{ins.source}"</div>
+                      <div style={{ textAlign: "right", fontSize: "12px", color: "var(--text-faint)", marginTop: "2px" }}>
+                        Grounded: {(ins.confidence * 100).toFixed(0)}%
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="chat-drawer-input-area">
+          <div className="qa-input-row">
+            <input
+              className="qa-input"
+              placeholder={
+                contractProfile
+                  ? "e.g., What is the governing law? Is there a termination right?"
+                  : "e.g., Extract the implementation plan from section 4."
+              }
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleQuery()}
+              disabled={queryLoading}
+            />
+            <button
+              className="btn btn-primary"
+              onClick={handleQuery}
+              disabled={queryLoading}
+            >
+              {queryLoading ? <span className="spinner" /> : "Ask"}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
