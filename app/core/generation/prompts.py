@@ -44,6 +44,14 @@ TASK:
 1. Reason deeply through the context against the REQUIRED CLAUSE REVIEW CHECKLIST.
 2. Generate the intelligence report strictly following the JSON schema provided below.
 
+### KEY INSIGHTS QUALITY BAR:
+- 'key_insights' must contain only non-obvious legal or commercial observations.
+- Do NOT repeat basic metadata already shown elsewhere such as document type, parties, effective date, governing law, or term.
+- Do NOT duplicate the same points already captured in 'risks' or 'recommended_actions'.
+- Prefer observations about leverage, drafting asymmetry, missing fallback mechanics, operational ambiguity, dependency risk, enforcement exposure, or commercially unusual structures.
+- Each insight should answer: "Why does this matter to the reviewer beyond the obvious clause summary?"
+- If the only available points are obvious metadata or duplicated risks, return fewer insights rather than weak ones.
+
 ### FORMAL EXECUTIVE SUMMARY INSTRUCTIONS:
 - Generate a 3-sentence executive summary in 'formal_executive_summary'.
 - Sentence 1: identify the document, parties, date, and purpose. 
@@ -61,7 +69,7 @@ TASK:
   "formal_executive_summary": "3-sentence formal legal memo summary for the export report.",
   "key_insights": [
     {{
-      "insight": "string",
+      "insight": "non-obvious strategic or legal observation",
       "source": "verbatim quote from context",
       "confidence": 0.0-1.0
     }}

@@ -138,6 +138,21 @@ const DocumentAnalysis = () => {
         return { insight: item, source: "Legacy analysis - no source quote available", confidence: overall_confidence };
       }
       return item;
+    }).filter((item) => {
+      const text = String(item?.insight || "").toLowerCase();
+      if (!text) return false;
+      const lowSignalPatterns = [
+        "statement of work",
+        "master services agreement",
+        "effective date",
+        "governing law",
+        "the agreement is between",
+        "the contract is between",
+        "the contract contains",
+        "the document identifies",
+        "the agreement sets out",
+      ];
+      return !lowSignalPatterns.some((pattern) => text.includes(pattern));
     });
     const risks = (realData.risks || []).map((r) => ({
       ...r,
@@ -1063,52 +1078,35 @@ const DocumentAnalysis = () => {
             <div className="card">
               <div className="card-header">
                 <div className="card-title">
-                  {isContractReview ? "AI Research: Key Insights" : "Key Insights"}
+                  {isContractReview ? "AI Research: Strategic Insights" : "Key Insights"}
                 </div>
               </div>
               <div className="card-body">
-                {result.key_insights?.map((i, idx) => (
-                  <div key={idx} className="insight-feed-item">
-                    <span className="insight-severity-dot low" />
-                    <div>
-                      <div className="insight-feed-text">{i.insight}</div>
-                      <div className="source-quote" style={{ margin: "6px 0 0", cursor: "default" }}>
-                        "{i.source}"
-                      </div>
-                      <div style={{ fontSize: "12px", color: "var(--text-faint)", marginTop: "4px" }}>
-                        Grounded: {(i.confidence * 100).toFixed(0)}%
+                {result.key_insights?.length ? (
+                  result.key_insights.map((i, idx) => (
+                    <div key={idx} className="insight-feed-item">
+                      <span className="insight-severity-dot low" />
+                      <div>
+                        <div className="insight-feed-text">{i.insight}</div>
+                        <div className="source-quote" style={{ margin: "6px 0 0", cursor: "default" }}>
+                          "{i.source}"
+                        </div>
+                        <div style={{ fontSize: "12px", color: "var(--text-faint)", marginTop: "4px" }}>
+                          Grounded: {(i.confidence * 100).toFixed(0)}%
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))
+                ) : (
+                  <p style={{ fontSize: "13px", color: "var(--text-muted)", lineHeight: "1.6" }}>
+                    No distinct strategic insights were generated beyond the contract overview and review findings.
+                  </p>
+                )}
               </div>
             </div>
           </div>
 
           <div className="two-col-grid">
-            <div className="card">
-              <div className="card-header">
-                <div className="card-title">
-                  {isContractReview ? "AI Research: Risks" : "Risks Identified"}
-                </div>
-              </div>
-              <div className="card-body">
-                {result.risks?.map((r, idx) => (
-                  <div key={idx} className="insight-feed-item">
-                    <span className={`insight-severity-dot ${getSeverityClass(r.severity)}`} />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                        <span className="insight-feed-text" style={{ fontWeight: 500 }}>{r.finding}</span>
-                        <span className={`badge badge-${getSeverityClass(r.severity)}`}>{getSeverityLabel(r.severity)}</span>
-                      </div>
-                      <p style={{ fontSize: "12px", color: "var(--text-muted)", margin: "4px 0" }}>{r.reason}</p>
-                      <div className="source-quote" style={{ margin: "4px 0 0", cursor: "default" }}>"{r.source}"</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
             <div className="card">
               <div className="card-header">
                 <div className="card-title">
