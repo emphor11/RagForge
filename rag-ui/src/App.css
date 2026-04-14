@@ -1,5 +1,5 @@
 /* ===================================================
-   RAGForge Legal — App Styles
+   JuriSight Legal — App Styles
    "Precision Legal Intelligence"
    Linear meets Westlaw.
    =================================================== */
@@ -295,58 +295,6 @@
 .topnav-breadcrumb-item.active {
   color: var(--text-primary);
   font-weight: var(--weight-medium);
-}
-
-.topnav-search {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--bg-page);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-badge);
-  padding: 6px 12px;
-  width: 280px;
-  transition: border-color var(--transition);
-}
-
-.topnav-search:focus-within {
-  border-color: var(--border-strong);
-}
-
-.topnav-search-icon {
-  color: var(--text-muted);
-  display: flex;
-  align-items: center;
-}
-
-.topnav-search-icon svg {
-  width: 14px;
-  height: 14px;
-}
-
-.topnav-search input {
-  border: none;
-  background: none;
-  outline: none;
-  font-size: 13px;
-  color: var(--text-primary);
-  font-family: var(--font);
-  width: 100%;
-}
-
-.topnav-search input::placeholder {
-  color: var(--text-faint);
-}
-
-.topnav-search-kbd {
-  background: var(--bg-card);
-  border: 1px solid var(--border-default);
-  border-radius: 3px;
-  padding: 1px 5px;
-  font-size: 11px;
-  color: var(--text-faint);
-  font-family: var(--font);
-  flex-shrink: 0;
 }
 
 .topnav-right {
@@ -1999,7 +1947,6 @@
   .two-col-grid { grid-template-columns: 1fr; }
   .stats-row { grid-template-columns: repeat(2, 1fr); }
   .content { padding: 16px; }
-  .topnav-search { display: none; }
   .topnav-breadcrumb { flex: 1; }
   .overview-grid { grid-template-columns: 1fr; }
   .analysis-header { top: 0; }

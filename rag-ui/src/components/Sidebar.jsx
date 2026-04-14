@@ -53,7 +53,7 @@ const Sidebar = ({ currentDocId }) => {
           <Scale />
         </div>
         <div className="sidebar-brand-text">
-          RAGForge<span>v2</span>
+          JuriSight<span>AI</span>
         </div>
       </div>
 

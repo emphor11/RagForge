@@ -1,4 +1,4 @@
-import { Search, Bell, Sun, Moon, Home, ChevronRight } from "lucide-react";
+import { Bell, Sun, Moon, Home, ChevronRight } from "lucide-react";
 import { useLocation, useParams, Link } from "react-router-dom";
 
 const ROUTE_LABELS = {
@@ -84,21 +84,6 @@ const TopNav = ({ theme, toggleTheme }) => {
         })}
       </nav>
 
-      {/* Search */}
-      <div className="topnav-search" title="Search coming soon">
-        <span className="topnav-search-icon">
-          <Search />
-        </span>
-        <input
-          type="text"
-          placeholder="Search documents, insights…"
-          id="global-search"
-          readOnly
-          style={{ cursor: "default" }}
-        />
-        <span className="topnav-search-kbd">⌘K</span>
-      </div>
-
       <div className="topnav-right">
         <button
           className="topnav-btn"
@@ -119,7 +104,7 @@ const TopNav = ({ theme, toggleTheme }) => {
           <div className="topnav-avatar">U</div>
           <div>
             <div className="topnav-profile-name">User</div>
-            <div className="topnav-profile-email">user@ragforge.ai</div>
+            <div className="topnav-profile-email">user@jurisight.ai</div>
           </div>
         </div>
       </div>
