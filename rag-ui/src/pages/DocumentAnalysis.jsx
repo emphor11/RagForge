@@ -1106,9 +1106,7 @@ const DocumentAnalysis = () => {
                 )}
               </div>
             </div>
-          </div>
 
-          <div className="two-col-grid">
             <div className="card">
               <div className="card-header">
                 <div className="card-title">
