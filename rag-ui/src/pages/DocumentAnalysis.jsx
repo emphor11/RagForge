@@ -879,6 +879,21 @@ const DocumentAnalysis = () => {
       )}
 
       {/* ===== REVIEW FINDINGS ===== */}
+      {result?.summary && (
+        <div className="card" style={{ marginBottom: "var(--section-gap)" }}>
+          <div className="card-header">
+            <div className="card-title">
+              {isContractReview ? "AI Research: Summary" : "Executive Summary"}
+            </div>
+          </div>
+          <div className="card-body">
+            <p style={{ fontSize: "14px", color: "var(--text-body)", lineHeight: "1.7" }}>
+              {result.summary}
+            </p>
+          </div>
+        </div>
+      )}
+
       {contractFindings.length > 0 && (
         <div style={{ marginBottom: "var(--section-gap)" }}>
           <div className="card" style={{ marginBottom: "var(--section-gap)" }}>
@@ -1062,19 +1077,6 @@ const DocumentAnalysis = () => {
       {(!isContractReview || showSupplementalAnalysis) && result && (
         <>
           <div className="two-col-grid">
-            <div className="card">
-              <div className="card-header">
-                <div className="card-title">
-                  {isContractReview ? "AI Research: Summary" : "Executive Summary"}
-                </div>
-              </div>
-              <div className="card-body">
-                <p style={{ fontSize: "14px", color: "var(--text-body)", lineHeight: "1.7" }}>
-                  {result.summary}
-                </p>
-              </div>
-            </div>
-
             <div className="card">
               <div className="card-header">
                 <div className="card-title">
