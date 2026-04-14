@@ -47,6 +47,7 @@ const DocumentAnalysis = () => {
   const [query, setQuery] = useState("");
   const [queryResult, setQueryResult] = useState(null);
   const [queryLoading, setQueryLoading] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const [showSupplementalAnalysis, setShowSupplementalAnalysis] = useState(false);
   const [updatingFindingIndex, setUpdatingFindingIndex] = useState(null);
   const [verifyLoading, setVerifyLoading] = useState(false);
@@ -319,6 +320,7 @@ const DocumentAnalysis = () => {
 
   const handleQuery = async () => {
     if (!query || queryLoading) return;
+    setChatOpen(true);
     setQueryLoading(true);
     try {
       const res = await fetch(`${API_BASE_URL}/query`, {
@@ -791,6 +793,13 @@ const DocumentAnalysis = () => {
       {/* ===== ACTIONS ROW ===== */}
       {isContractReview && (
         <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "20px", gap: "8px" }}>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => setChatOpen((prev) => !prev)}
+            title="Open a document-specific assistant for this contract."
+          >
+            <MessageSquare /> {chatOpen ? "Hide Document Chat" : "Document Chat"}
+          </button>
           {isContractReview && result && (
             <button
               className="btn btn-ghost btn-sm"
@@ -814,6 +823,132 @@ const DocumentAnalysis = () => {
           <button className="btn btn-primary" onClick={handleExportReport}>
             <Download /> Export Report
           </button>
+        </div>
+      )}
+
+      {chatOpen && (
+        <div className="doc-chat-shell">
+          <div className="qa-section doc-chat-panel">
+            {queryResult && queryResult.reasoning && (
+              <div className="reasoning-block">
+                <strong>Thought Process</strong>
+                <p>{queryResult.reasoning}</p>
+              </div>
+            )}
+
+            <div className="doc-chat-header">
+              <div>
+                <div className="qa-title">Document Chat</div>
+                <div className="qa-subtitle" style={{ marginBottom: 0 }}>
+                  Ask focused questions about this specific agreement.
+                </div>
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={() => setChatOpen(false)}>
+                Close
+              </button>
+            </div>
+
+            {queryResult && queryResult.context_quality !== "full" && (
+              <div className="context-notice" style={{ marginBottom: "12px" }}>
+                <AlertTriangle />
+                <span className="context-notice-text">
+                  <strong>Partial Context:</strong> {queryResult.context_gap}
+                </span>
+              </div>
+            )}
+
+            <div className="qa-input-row">
+              <input
+                className="qa-input"
+                placeholder={
+                  contractProfile
+                    ? "e.g., What is the governing law? Is there a termination right?"
+                    : "e.g., Extract the implementation plan from section 4."
+                }
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleQuery()}
+                disabled={queryLoading}
+              />
+              <button
+                className="btn btn-primary"
+                onClick={handleQuery}
+                disabled={queryLoading}
+              >
+                {queryLoading ? <span className="spinner" /> : "Ask"}
+              </button>
+            </div>
+
+            {!queryResult && (
+              <div className="qa-chips">
+                {[
+                  "What is the liability cap?",
+                  "Is there a non-compete clause?",
+                  "What are the termination rights?",
+                ].map((q) => (
+                  <button
+                    key={q}
+                    className="qa-chip"
+                    onClick={() => {
+                      setQuery(q);
+                    }}
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {queryResult && (
+              <div className="qa-response">
+                <div className="qa-response-header">
+                  <Shield size={14} /> Grounded Intelligence Answer
+                </div>
+                <div className="qa-response-text">
+                  {queryResult.answer || queryResult.summary}
+                </div>
+
+                {queryResult.citations?.length > 0 && (
+                  <div className="qa-citations">
+                    <div className="qa-citations-label">Supporting Evidence (Verbatim)</div>
+                    {queryResult.citations.map((cite, i) => (
+                      <div key={i} style={{ marginBottom: "12px" }}>
+                        <div
+                          className="source-quote"
+                          onClick={() => setActiveQuote(cite.quote)}
+                          title="Click to verify in source"
+                        >
+                          "{cite.quote}"
+                        </div>
+                        <div style={{ fontSize: "12px", color: "var(--text-muted)", fontStyle: "italic", paddingLeft: "14px", marginTop: "2px" }}>
+                          — {cite.relevance}
+                        </div>
+                      </div>
+                    ))}
+                    <div style={{ textAlign: "right" }}>
+                      <span className="finding-confidence">
+                        Grounded: {(queryResult.confidence * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {!queryResult.citations && queryResult.key_insights?.length > 0 && (
+                  <div className="qa-citations">
+                    <div className="qa-citations-label">Supporting Evidence</div>
+                    {queryResult.key_insights.map((ins, i) => (
+                      <div key={i} style={{ marginBottom: "8px" }}>
+                        <div className="source-quote" style={{ cursor: "default" }}>"{ins.source}"</div>
+                        <div style={{ textAlign: "right", fontSize: "12px", color: "var(--text-faint)", marginTop: "2px" }}>
+                          Grounded: {(ins.confidence * 100).toFixed(0)}%
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -1129,121 +1264,6 @@ const DocumentAnalysis = () => {
           </div>
         </>
       )}
-
-      {/* ===== Q&A SECTION ===== */}
-      <div className="qa-section">
-        {queryResult && queryResult.reasoning && (
-          <div className="reasoning-block">
-            <strong>Thought Process</strong>
-            <p>{queryResult.reasoning}</p>
-          </div>
-        )}
-
-        <div className="qa-title">Ask about this contract</div>
-        <div className="qa-subtitle">Answers are grounded in clause citations only</div>
-
-        {queryResult && queryResult.context_quality !== "full" && (
-          <div className="context-notice" style={{ marginBottom: "12px" }}>
-            <AlertTriangle />
-            <span className="context-notice-text">
-              <strong>Partial Context:</strong> {queryResult.context_gap}
-            </span>
-          </div>
-        )}
-
-        <div className="qa-input-row">
-          <input
-            className="qa-input"
-            placeholder={
-              contractProfile
-                ? "e.g., What is the governing law? Is there a termination right?"
-                : "e.g., Extract the step-by-step implementation plan from section 4."
-            }
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleQuery()}
-            disabled={queryLoading}
-          />
-          <button
-            className="btn btn-primary"
-            onClick={handleQuery}
-            disabled={queryLoading}
-          >
-            {queryLoading ? <span className="spinner" /> : "Analyze →"}
-          </button>
-        </div>
-
-        {/* Example chips */}
-        {!queryResult && (
-          <div className="qa-chips">
-            {[
-              "What is the liability cap?",
-              "Is there a non-compete clause?",
-              "What are the termination rights?",
-            ].map((q) => (
-              <button
-                key={q}
-                className="qa-chip"
-                onClick={() => {
-                  setQuery(q);
-                }}
-              >
-                {q}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {queryResult && (
-          <div className="qa-response">
-            <div className="qa-response-header">
-              <Shield size={14} /> Grounded Intelligence Answer
-            </div>
-            <div className="qa-response-text">
-              {queryResult.answer || queryResult.summary}
-            </div>
-
-            {queryResult.citations?.length > 0 && (
-              <div className="qa-citations">
-                <div className="qa-citations-label">Supporting Evidence (Verbatim)</div>
-                {queryResult.citations.map((cite, i) => (
-                  <div key={i} style={{ marginBottom: "12px" }}>
-                    <div
-                      className="source-quote"
-                      onClick={() => setActiveQuote(cite.quote)}
-                      title="Click to verify in source"
-                    >
-                      "{cite.quote}"
-                    </div>
-                    <div style={{ fontSize: "12px", color: "var(--text-muted)", fontStyle: "italic", paddingLeft: "14px", marginTop: "2px" }}>
-                      — {cite.relevance}
-                    </div>
-                  </div>
-                ))}
-                <div style={{ textAlign: "right" }}>
-                  <span className="finding-confidence">
-                    Grounded: {(queryResult.confidence * 100).toFixed(0)}%
-                  </span>
-                </div>
-              </div>
-            )}
-
-            {!queryResult.citations && queryResult.key_insights?.length > 0 && (
-              <div className="qa-citations">
-                <div className="qa-citations-label">Supporting Evidence</div>
-                {queryResult.key_insights.map((ins, i) => (
-                  <div key={i} style={{ marginBottom: "8px" }}>
-                    <div className="source-quote" style={{ cursor: "default" }}>"{ins.source}"</div>
-                    <div style={{ textAlign: "right", fontSize: "12px", color: "var(--text-faint)", marginTop: "2px" }}>
-                      Grounded: {(ins.confidence * 100).toFixed(0)}%
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
 
       {/* ===== LEGAL DISCLAIMER ===== */}
       <div className="legal-disclaimer">
