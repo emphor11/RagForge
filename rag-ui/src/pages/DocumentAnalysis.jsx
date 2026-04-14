@@ -50,7 +50,7 @@ const DocumentAnalysis = () => {
   const [queryResult, setQueryResult] = useState(null);
   const [queryLoading, setQueryLoading] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
-  const [showAiNotes, setShowAiNotes] = useState(true);
+  const [showAiNotes, setShowAiNotes] = useState(false);
   const [updatingFindingIndex, setUpdatingFindingIndex] = useState(null);
   const [verifyLoading, setVerifyLoading] = useState(false);
   const [localVerifyAvailable, setLocalVerifyAvailable] = useState(false);
@@ -604,7 +604,7 @@ const DocumentAnalysis = () => {
           </div>
         )}
 
-        {/* Source quotes */}
+        {/* Source quotes — strip internal prefixes before display */}
         {finding.source_quotes?.map((quote, quoteIdx) => (
           <div
             key={quoteIdx}
@@ -612,7 +612,7 @@ const DocumentAnalysis = () => {
             onClick={() => setActiveQuote(quote)}
             title="Click to verify in source document"
           >
-            "{quote}"
+            "{cleanQuote(quote)}"
           </div>
         ))}
 
@@ -716,8 +716,23 @@ const DocumentAnalysis = () => {
     );
   };
 
+  // Strip internal data prefixes from source quotes before display
+  const cleanQuote = (text) => {
+    if (!text) return text;
+    return String(text)
+      .replace(/^DERIVED_FROM_MISSING:\s*/i, "")
+      .replace(/^MISSING_CLAUSE:\s*/i, "")
+      .trim();
+  };
+
   return (
-    <div className="analysis-page">
+    <div
+      className="analysis-page"
+      style={{
+        marginRight: chatOpen ? "420px" : "0",
+        transition: "margin-right 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
+      }}
+    >
 
       {/* ===== STICKY ANALYSIS HEADER ===== */}
       <div className="analysis-header">
@@ -747,11 +762,19 @@ const DocumentAnalysis = () => {
           </div>
         </div>
 
-        {/* Compact audit ring in header */}
-        {auditStatus !== "deferred" && (
-          <div title={`Review Audit: ${auditScore}/100`} style={{ flexShrink: 0 }}>
-            {renderProgressRing(auditScore, 40, 3.5)}
-          </div>
+        {/* Audit score as a small pill badge in header — not the hero */}
+        {auditStatus !== "deferred" ? (
+          <span
+            className={`badge ${auditScore >= 80 ? "badge-low" : auditScore >= 50 ? "badge-medium" : "badge-high"}`}
+            style={{ fontSize: "12px", flexShrink: 0 }}
+            title={`Analysis Quality Score: ${auditScore}/100`}
+          >
+            <Shield size={11} /> {auditScore}/100
+          </span>
+        ) : (
+          <span className="badge badge-neutral" style={{ fontSize: "12px", flexShrink: 0 }}>
+            Fast Review
+          </span>
         )}
 
         {/* Action buttons — always visible in header */}
@@ -793,15 +816,7 @@ const DocumentAnalysis = () => {
         </div>
       )}
 
-      {/* ===== CONTEXT WARNING ===== */}
-      {result.context_quality && result.context_quality !== "full" && (
-        <div className="context-notice">
-          <Info />
-          <span className="context-notice-text">
-            <strong>Partial context:</strong> {result.context_gap || "The document context may not fully support all generated insights."}
-          </span>
-        </div>
-      )}
+      {/* Context warning shown ONCE — inside Contract Overview card only. Removed from here. */}
 
       {/* ===== REJECTION UI (Non-Legal Document) ===== */}
       {contractProfile?.is_legal_document === false && (
@@ -843,9 +858,9 @@ const DocumentAnalysis = () => {
         </div>
       )}
 
-      {/* ===== KPI STATS ROW ===== */}
+      {/* ===== KPI STATS ROW — 3 cards, findings are the hero ===== */}
       {contractProfile?.is_legal_document !== false && (
-        <div className="stats-row">
+        <div className="stats-row" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
           <div className="stat-card stat-card-findings">
             <div className="stat-label">
               {isContractReview ? "Review Findings" : "Grounded Insights"}
@@ -856,111 +871,23 @@ const DocumentAnalysis = () => {
           </div>
           <div className="stat-card stat-card-critical">
             <div className="stat-label">Critical Risks</div>
-            <div className="stat-value" style={{ color: criticalCount > 0 ? "var(--danger)" : "var(--text-primary)" }}>
+            <div
+              className="stat-value"
+              style={{ color: criticalCount > 0 ? "var(--danger)" : "var(--text-primary)" }}
+            >
               {criticalCount}
             </div>
           </div>
           <div className="stat-card stat-card-clauses">
-            <div className="stat-label">
-              {isContractReview ? "Clauses Indexed" : "Avg Grounding"}
-            </div>
+            <div className="stat-label">Avg Confidence</div>
             <div className="stat-value">
-              {isContractReview
-                ? contractClauses.length
-                : `${(result.overall_confidence * 100).toFixed(0)}%`}
-            </div>
-          </div>
-          <div className="stat-card stat-card-audit">
-            <div className="stat-label">Review Audit Score</div>
-            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-              {auditStatus === "deferred" ? (
-                <div style={{ fontSize: "14px", color: "var(--text-muted)" }}>Deferred</div>
-              ) : (
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <div className="stat-value">{auditScore}</div>
-                  <div style={{ fontSize: "13px", color: "var(--text-muted)" }}>/100</div>
-                </div>
-              )}
+              {`${(result.overall_confidence * 100).toFixed(0)}%`}
             </div>
           </div>
         </div>
       )}
 
-      {/* ===== CONTRACT OVERVIEW ===== */}
-      {contractProfile && (
-        <div className="card" style={{ marginBottom: "var(--section-gap)" }}>
-          <div className="card-header">
-            <div className="card-title">Contract Overview</div>
-          </div>
-          <div className="card-body">
-
-            {/* Parties Banner — prominent at top */}
-            {contractProfile.parties?.length > 0 && (
-              <div className="parties-banner">
-                <span className="parties-banner-label">Parties</span>
-                {contractProfile.parties.map((party, idx) => (
-                  <span key={`${party}-${idx}`} className="party-tag">{party}</span>
-                ))}
-              </div>
-            )}
-
-            {/* Inline context warning */}
-            {result.context_quality && result.context_quality !== "full" && (
-              <div className="context-notice" style={{ marginBottom: "16px" }}>
-                <Info />
-                <span className="context-notice-text">
-                  {result.context_gap || "The document context may be incomplete."}
-                </span>
-              </div>
-            )}
-
-            <div className="overview-grid" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
-              <div>
-                <div className="overview-field-label">Document Type</div>
-                <div className="overview-field-value">{formatDocumentType(contractProfile.document_type)}</div>
-              </div>
-              <div>
-                <div className="overview-field-label">Classification Confidence</div>
-                <div className="overview-field-value">{((contractProfile.classification_confidence || 0) * 100).toFixed(0)}%</div>
-              </div>
-              <div>
-                <div className="overview-field-label">Effective Date</div>
-                <div className="overview-field-value">{contractProfile.effective_date || "Not detected"}</div>
-              </div>
-              <div>
-                <div className="overview-field-label">Governing Law</div>
-                <div className="overview-field-value">{contractProfile.governing_law || "Not detected"}</div>
-              </div>
-              <div>
-                <div className="overview-field-label">Term Length</div>
-                <div className="overview-field-value">{contractProfile.term_length || "Not detected"}</div>
-              </div>
-              <div>
-                <div className="overview-field-label">Renewal Mechanics</div>
-                <div className="overview-field-value">{contractProfile.renewal_mechanics || "Not detected"}</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ===== EXECUTIVE SUMMARY ===== */}
-      {result?.summary && (
-        <div className="card" style={{ marginBottom: "var(--section-gap)" }}>
-          <div className="card-header">
-            <div className="card-title">
-              {isContractReview ? "AI Research: Summary" : "Executive Summary"}
-            </div>
-          </div>
-          <div className="card-body">
-            <p style={{ fontSize: "14px", color: "var(--text-body)", lineHeight: "1.7" }}>
-              {result.summary}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* ===== CONTRACT REVIEW FINDINGS ===== */}
+      {/* ===== CONTRACT REVIEW FINDINGS — most important, shown first ===== */}
       {contractFindings.length > 0 && (
         <div className="card" style={{ marginBottom: "var(--section-gap)" }}>
           <div className="card-header">
@@ -1042,7 +969,83 @@ const DocumentAnalysis = () => {
         </div>
       )}
 
+      {/* ===== CONTRACT OVERVIEW — context second, after findings ===== */}
+      {contractProfile && (
+        <div className="card" style={{ marginBottom: "var(--section-gap)" }}>
+          <div className="card-header">
+            <div className="card-title">Contract Overview</div>
+          </div>
+          <div className="card-body">
+
+            {/* Parties Banner — prominent at top */}
+            {contractProfile.parties?.length > 0 && (
+              <div className="parties-banner">
+                <span className="parties-banner-label">Parties</span>
+                {contractProfile.parties.map((party, idx) => (
+                  <span key={`${party}-${idx}`} className="party-tag">{party}</span>
+                ))}
+              </div>
+            )}
+
+            {/* Context warning — shown ONCE, here only */}
+            {result.context_quality && result.context_quality !== "full" && (
+              <div className="context-notice" style={{ marginBottom: "16px" }}>
+                <Info />
+                <span className="context-notice-text">
+                  <strong>Partial context:</strong>{" "}
+                  {result.context_gap || "The document context may be incomplete."}
+                </span>
+              </div>
+            )}
+
+            <div className="overview-grid" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+              <div>
+                <div className="overview-field-label">Document Type</div>
+                <div className="overview-field-value">{formatDocumentType(contractProfile.document_type)}</div>
+              </div>
+              <div>
+                <div className="overview-field-label">Classification Confidence</div>
+                <div className="overview-field-value">{((contractProfile.classification_confidence || 0) * 100).toFixed(0)}%</div>
+              </div>
+              <div>
+                <div className="overview-field-label">Effective Date</div>
+                <div className="overview-field-value">{contractProfile.effective_date || "Not detected"}</div>
+              </div>
+              <div>
+                <div className="overview-field-label">Governing Law</div>
+                <div className="overview-field-value">{contractProfile.governing_law || "Not detected"}</div>
+              </div>
+              <div>
+                <div className="overview-field-label">Term Length</div>
+                <div className="overview-field-value">{contractProfile.term_length || "Not detected"}</div>
+              </div>
+              <div>
+                <div className="overview-field-label">Renewal Mechanics</div>
+                <div className="overview-field-value">{contractProfile.renewal_mechanics || "Not detected"}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== EXECUTIVE SUMMARY ===== */}
+      {result?.summary && (
+        <div className="card" style={{ marginBottom: "var(--section-gap)" }}>
+          <div className="card-header">
+            <div className="card-title">
+              {isContractReview ? "AI Research: Summary" : "Executive Summary"}
+            </div>
+          </div>
+          <div className="card-body">
+            <p style={{ fontSize: "14px", color: "var(--text-body)", lineHeight: "1.7" }}>
+              {result.summary}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* ===== CLAUSE INVENTORY ===== */}
+
       {contractClauses.length > 0 && (
         <div className="card" style={{ marginBottom: "var(--section-gap)" }}>
           <div className="card-header">
