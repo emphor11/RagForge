@@ -56,8 +56,23 @@ const Analytics = () => {
   const lastWeek = data.risk_trend?.last_week || 0;
   const thisWeek = data.risk_trend?.this_week || 0;
   const trendDelta = thisWeek - lastWeek;
-  const trendPct = lastWeek > 0 ? ((trendDelta / lastWeek) * 100).toFixed(0) : 0;
   const direction = data.risk_trend?.direction || "stable";
+  const hasBaseline = lastWeek > 0;
+  const trendPct = hasBaseline ? Math.round((trendDelta / lastWeek) * 100) : null;
+  const trendBadgeLabel = !hasBaseline
+    ? thisWeek > 0
+      ? `+${thisWeek} new`
+      : "No change"
+    : `${trendDelta > 0 ? "+" : ""}${trendPct}%`;
+  const trendStatusCopy = !hasBaseline
+    ? thisWeek > 0
+      ? `${thisWeek} risks were identified this week with no prior-week baseline.`
+      : "No risks were recorded in either week."
+    : direction === "down"
+    ? "Risks are decreasing — trending favorably."
+    : direction === "up"
+    ? "Risks are increasing — review new documents."
+    : "Risk levels are holding steady.";
 
   return (
     <div className="analytics-page">
@@ -118,18 +133,14 @@ const Analytics = () => {
                 {direction === "up" && <TrendingUp size={14} />}
                 {direction === "down" && <TrendingDown size={14} />}
                 {direction === "stable" && <Minus size={14} />}
-                {trendDelta > 0 ? "+" : ""}{trendPct}%
+                {trendBadgeLabel}
               </div>
             </div>
 
             <div style={{ borderTop: "1px solid var(--border-default)", paddingTop: "12px" }}>
               <div className="stat-label" style={{ marginBottom: "4px" }}>Status</div>
               <div style={{ fontSize: "14px", color: "var(--text-body)" }}>
-                {direction === "down"
-                  ? "Risks are decreasing — trending favorably."
-                  : direction === "up"
-                  ? "Risks are increasing — review new documents."
-                  : "Risk levels are holding steady."}
+                {trendStatusCopy}
               </div>
             </div>
           </div>
