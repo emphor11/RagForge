@@ -887,89 +887,7 @@ const DocumentAnalysis = () => {
         </div>
       )}
 
-      {/* ===== CONTRACT REVIEW FINDINGS — most important, shown first ===== */}
-      {contractFindings.length > 0 && (
-        <div className="card" style={{ marginBottom: "var(--section-gap)" }}>
-          <div className="card-header">
-            <div className="card-title">Contract Review Findings</div>
-            <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>
-              {contractFindings.length} total
-            </span>
-          </div>
-          <div className="card-body">
-            {/* Filter bar */}
-            <div className="filter-bar">
-              {[
-                ["all", "All"],
-                ["open", "Open"],
-                ["accepted", "Accepted"],
-                ["dismissed", "Dismissed"],
-                ["escalated", "Escalated"],
-              ].map(([value, label]) => (
-                <button
-                  key={value}
-                  className={`filter-btn ${findingFilter === value ? "active" : ""}`}
-                  onClick={() => setFindingFilter(value)}
-                >
-                  {label} ({findingCounts[value]})
-                </button>
-              ))}
-            </div>
-
-            {/* Risk Findings */}
-            {riskFindings.length > 0 && (
-              <div style={{ marginBottom: "20px" }}>
-                <div style={{
-                  fontSize: "13px",
-                  fontWeight: 500,
-                  color: "var(--text-muted)",
-                  marginBottom: "12px",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px"
-                }}>
-                  <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "var(--danger)", flexShrink: 0 }} />
-                  Risk Findings ({riskFindings.length})
-                </div>
-                {riskFindings.map((finding) => {
-                  const idx = contractFindings.indexOf(finding);
-                  return renderFindingCard(finding, idx, false);
-                })}
-              </div>
-            )}
-
-            {/* Missing Protections */}
-            {missingProtections.length > 0 && (
-              <div>
-                <div style={{
-                  fontSize: "13px",
-                  fontWeight: 500,
-                  color: "var(--text-muted)",
-                  marginBottom: "12px",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px"
-                }}>
-                  <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "var(--warning)", flexShrink: 0 }} />
-                  Missing Protections ({missingProtections.length})
-                </div>
-                {missingProtections.map((finding) => {
-                  const idx = contractFindings.indexOf(finding);
-                  return renderFindingCard(finding, idx, true);
-                })}
-              </div>
-            )}
-
-            {filteredFindings.length === 0 && (
-              <p style={{ fontSize: "13px", color: "var(--text-muted)", padding: "12px 0" }}>
-                No findings match this filter.
-              </p>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ===== CONTRACT OVERVIEW — context second, after findings ===== */}
+      {/* ===== CONTRACT OVERVIEW ===== */}
       {contractProfile && (
         <div className="card" style={{ marginBottom: "var(--section-gap)" }}>
           <div className="card-header">
@@ -1040,6 +958,85 @@ const DocumentAnalysis = () => {
             <p style={{ fontSize: "14px", color: "var(--text-body)", lineHeight: "1.7" }}>
               {result.summary}
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* ===== CONTRACT REVIEW FINDINGS ===== */}
+      {contractFindings.length > 0 && (
+        <div className="card" style={{ marginBottom: "var(--section-gap)" }}>
+          <div className="card-header">
+            <div className="card-title">Contract Review Findings</div>
+            <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>
+              {contractFindings.length} total
+            </span>
+          </div>
+          <div className="card-body">
+            <div className="filter-bar">
+              {[
+                ["all", "All"],
+                ["open", "Open"],
+                ["accepted", "Accepted"],
+                ["dismissed", "Dismissed"],
+                ["escalated", "Escalated"],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  className={`filter-btn ${findingFilter === value ? "active" : ""}`}
+                  onClick={() => setFindingFilter(value)}
+                >
+                  {label} ({findingCounts[value]})
+                </button>
+              ))}
+            </div>
+
+            {riskFindings.length > 0 && (
+              <div style={{ marginBottom: "20px" }}>
+                <div style={{
+                  fontSize: "13px",
+                  fontWeight: 500,
+                  color: "var(--text-muted)",
+                  marginBottom: "12px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px"
+                }}>
+                  <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "var(--danger)", flexShrink: 0 }} />
+                  Risk Findings ({riskFindings.length})
+                </div>
+                {riskFindings.map((finding) => {
+                  const idx = contractFindings.indexOf(finding);
+                  return renderFindingCard(finding, idx, false);
+                })}
+              </div>
+            )}
+
+            {missingProtections.length > 0 && (
+              <div>
+                <div style={{
+                  fontSize: "13px",
+                  fontWeight: 500,
+                  color: "var(--text-muted)",
+                  marginBottom: "12px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px"
+                }}>
+                  <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "var(--warning)", flexShrink: 0 }} />
+                  Missing Protections ({missingProtections.length})
+                </div>
+                {missingProtections.map((finding) => {
+                  const idx = contractFindings.indexOf(finding);
+                  return renderFindingCard(finding, idx, true);
+                })}
+              </div>
+            )}
+
+            {filteredFindings.length === 0 && (
+              <p style={{ fontSize: "13px", color: "var(--text-muted)", padding: "12px 0" }}>
+                No findings match this filter.
+              </p>
+            )}
           </div>
         </div>
       )}
